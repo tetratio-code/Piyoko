@@ -167,7 +167,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v1.4</div>
+    <div class="title">小雞棋v1.5</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -230,6 +230,18 @@
   function log(msg){ logEl.textContent = msg || ''; }
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
+
+  function boardKeyFast(b){
+    let s = '';
+    for(let y=1;y<=H;y++){
+      for(let x=1;x<=W;x++){
+        const v = b[x][y];
+        s += (v ? v : '.');
+      }
+      s += '/';
+    }
+    return s;
+  }
 
   function clearBoard(b = board){
     for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
@@ -388,18 +400,7 @@
   }
   function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
 
-  function countPiecesOn(b){
-    let B=0,W=0;
-    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++){
-      if(b[x][y]==='B') B++;
-      else if(b[x][y]==='W') W++;
-    }
-    return {B,W};
-  }
-
-  // ===== ✅ 終局判定（關鍵修正）=====
-  // - 若兩邊都沒棋：視為 lastMoverColor 勝（混色群組一起出界時會發生）
-  // - 若單邊沒棋：該邊勝
+  // ===== 終局判定（保留你原本的邏輯）=====
   function checkGameOver(lastMoverColor = null, showAlert = false){
     const bHas = playerHasPieces('B');
     const wHas = playerHasPieces('W');
@@ -492,10 +493,13 @@
   }
 
   // ===== 模擬走子 + 列合法手 =====
+  // ✅ 回傳 changed：走完後盤面有沒有改變（否則視為「無意義步」）
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
+    const beforeKey = boardKeyFast(b0);
     const b = deepCopyBoard(b0);
+
     const g = computeGroupOn(b, x, y);
     if(!g) return { ok:false };
 
@@ -529,15 +533,17 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
+    // 終局（盤面角度）：winner 由盤面決定（雙方皆空視為 turnColor）
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
     if(!bHas || !wHas){
-      // 終局：回傳 winner（含雙方皆空時，視為 turnColor 勝）
       let winner = null;
       if(!bHas && !wHas) winner = turnColor;
       else if(!bHas) winner = 'B';
       else if(!wHas) winner = 'W';
-      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0 };
+
+      const afterKey = boardKeyFast(b);
+      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed: (afterKey !== beforeKey) };
     }
 
     const opponent = otherOf(turnColor);
@@ -545,19 +551,22 @@
 
     if(carriedOutOpponent > 0){
       respawnDropSim(b, opponent, carriedOutOpponent);
-      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent };
+      const afterKey = boardKeyFast(b);
+      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed: (afterKey !== beforeKey) };
     }
 
-    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0 };
+    const afterKey = boardKeyFast(b);
+    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed: (afterKey !== beforeKey) };
   }
 
+  // ✅ 只列「有意義步」：changed===true
   function listLegalMoves(b, turnColor){
     const moves = [];
     for(let x=1;x<=W;x++){
       for(let y=1;y<=H;y++){
         if(b[x][y] !== turnColor) continue;
         const sim = simulateMoveFrom(b, x, y, turnColor);
-        if(sim.ok) moves.push({ x, y, sim });
+        if(sim.ok && sim.changed) moves.push({ x, y, sim });
       }
     }
     return moves;
@@ -590,7 +599,13 @@
     if(hit && hit.alpha <= alpha && hit.beta >= beta) return hit.value;
 
     const moves = listLegalMoves(b, turnColor);
-    if(moves.length === 0) return evaluateBoard(b);
+
+    // ✅ PASS：沒有「有意義步」=> 直接換對方（消耗 1 ply）
+    if(moves.length === 0){
+      const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
+      TT.set(key, { value: v, alpha, beta });
+      return v;
+    }
 
     const isMax = (turnColor === 'B');
 
@@ -656,6 +671,9 @@
 
     isAnimating = true;
 
+    const before = deepCopyBoard(board);
+    const beforeKey = boardKeyFast(before);
+
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
     log(`上方棋子數=${above}，移動量=${moveAmount}`);
@@ -705,7 +723,7 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    // ✅ 行動後立刻檢查終局（包含雙方皆空）
+    // ✅ 行動後終局檢查
     const over1 = checkGameOver(turn, false);
     if(over1.over){
       render();
@@ -721,7 +739,6 @@
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
 
-      // ✅ 重生下落後再檢查一次終局（避免奇怪狀態）
       const over2 = checkGameOver(turn, false);
       if(over2.over){
         render();
@@ -731,6 +748,7 @@
         return;
       }
 
+      // 回合不換
       selected = null;
       group = null;
       render();
@@ -739,6 +757,20 @@
       return;
     }
 
+    // ✅ 若盤面完全沒變 => 視為 PASS，直接換手
+    const afterKey = boardKeyFast(board);
+    if(afterKey === beforeKey){
+      turn = opponent;
+      selected = null;
+      group = null;
+      render();
+      log('此步無法造成盤面變化 → PASS 換對方');
+      isAnimating = false;
+      await maybeTriggerAIMove();
+      return;
+    }
+
+    // 正常換手
     turn = opponent;
     selected = null;
     group = null;
@@ -752,7 +784,6 @@
   async function maybeTriggerAIMove(){
     if(isAnimating) return;
 
-    // ✅ 任何時候觸發 AI 前先檢查終局，避免「終局被當 PASS」
     const over = checkGameOver(null, false);
     if(over.over) return;
 
@@ -768,10 +799,15 @@
     await sleep(0);
 
     const mv = pickBestAIMove();
+
+    // ✅ AI 沒「有意義步」=> PASS 換手，並可連續觸發（雙方AI）
     if(!mv){
-      const cnt = countPiecesOn(board);
-      log(`AI 無合法手（PASS）。turn=${turn} 盤上 B=${cnt.B}, W=${cnt.W}`);
+      turn = otherOf(turn);
+      selected = null;
+      group = null;
       render();
+      log('AI 缺乏有意義棋步 → PASS 換對方');
+      await maybeTriggerAIMove();
       return;
     }
 
