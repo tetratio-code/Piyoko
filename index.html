@@ -194,6 +194,11 @@
 
 <script>
 (() => {
+  const STEP_DELAY = 100; // 0.1 秒
+
+  function sleep(ms){
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
   const W = 12, H = 6;
   const POINTS_PER_TURN = 6;
 
@@ -417,7 +422,7 @@
     turn = (turn === 'B') ? 'W' : 'B';
   }
 
-  function performMove(){
+  async function performMove(){
     if(!selected || !group){
       log('請先點選一顆己方棋子。', true);
       return;
@@ -426,79 +431,73 @@
       log('只能移動輪到的那一方。', true);
       return;
     }
-
+  
     const x = selected.x, y = selected.y;
     const above = countFriendlyAboveInColumn(x,y,turn);
     const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
-
-    // NOTE: moveAmount could become 0 if (above+1) > 6
+  
     if(moveAmount <= 0){
-      log(`此群組移動量為 0（上方己棋數=${above}），無法移動。`, true);
-      // still counts as a turn? spec says "使用全部的移動點數" but if 0 then no movement.
-      // We'll treat as "no-op still ends turn" to avoid deadlock.
+      log(`此群組移動量為 0，回合結束。`);
       endTurn();
       render();
       return;
     }
-
-    log(`移動：${turn==='B'?'黑':'白'} 選定 (${x},${y})，群組高度=${group.ys.length}，上方己棋數=${above}，移動量=${moveAmount}`);
-
-    // 1) move up by moveAmount, step-by-step until blocked/top
-    let upSteps = 0;
+  
+    log(`開始移動，移動量=${moveAmount}`);
+  
+    // ===== 1️⃣ 往上移動 =====
     for(let i=0;i<moveAmount;i++){
-      if(moveUpStep(group)) upSteps++;
-      else break;
-    }
-    if(upSteps>0) log(`先往上移動 ${upSteps} 格。`);
-    else log(`往上移動被擋或到頂（0 格）。`);
-
-    // 2) repeat rules
-    let safety = 0;
-    while(safety++ < 2000){
-      if(frontBlocked(group)){
-        // "前方有其他棋子" => move down until below occupied or y==1
-        if(canMoveDown(group)){
-          moveDown1(group);
-          continue;
-        } else {
-          // cannot move down => stop
-          break;
-        }
-      } else {
-        // "前方無其他棋子" => move forward 1, then check support
-        const res = moveForward1(group);
-        if(res.blocked){
-          // should not happen if frontBlocked() was false, but keep safe
-          log('偵測到前方移動被擋（保護機制）。', true);
-          break;
-        }
-        if(res.borneOff){
-          log(`群組往前出界 → 移出棋盤。`);
-          break;
-        }
-        // after moving forward: check below support
-        if(!belowOccupiedOrGround(group)){
-          // "下方無其他棋子或是高度為1" => (here means no support and not at y=1) => move down 1 then re-check front
-          moveDown1(group);
-          continue;
-        } else {
-          // supported or at ground => stop
-          break;
-        }
+      if(moveUpStep(group)){
+        render();
+        await sleep(STEP_DELAY);
+      }else{
+        break;
       }
     }
-    if(safety >= 2000){
-      log('移動迴圈達到安全上限，已強制停止（避免無窮迴圈）。', true);
+  
+    // ===== 2️⃣ 反覆前進/下落 =====
+    let safety = 0;
+    while(safety++ < 500){
+  
+      // 前方被擋 → 垂直下落
+      if(frontBlocked(group)){
+        while(canMoveDown(group)){
+          moveDown1(group);
+          render();
+          await sleep(STEP_DELAY);
+        }
+        break;
+      }
+  
+      // 前方無棋子 → 往前
+      const res = moveForward1(group);
+      render();
+      await sleep(STEP_DELAY);
+  
+      if(res.borneOff){
+        log('群組出界！');
+        break;
+      }
+  
+      // 檢查是否需要下落
+      while(!belowOccupiedOrGround(group)){
+        moveDown1(group);
+        render();
+        await sleep(STEP_DELAY);
+      }
+  
+      // 有支撐 → 停止
+      break;
     }
-
-    // win check (current player after move)
+  
+    // ===== 勝利檢查 =====
     if(!playerHasPieces(turn)){
       render();
-      alert(`${turn==='B'?'黑棋':'白棋'}勝利！己方棋子已全部移出前方棋盤外。`);
+      await sleep(300);
+      alert(`${turn==='B'?'黑棋':'白棋'}勝利！`);
       return;
     }
-
-    // end turn
+  
     endTurn();
     render();
   }
