@@ -167,7 +167,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋</div>
+    <div class="title">小雞棋v1.1</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -363,30 +363,39 @@
   function frontBlocked(g){ return frontBlockedOn(board, g); }
 
   function moveForward1On(b, g){
-    const nx=g.x+dirOf(g.moverColor);
-
-    if(nx<1||nx>W){
+    const nx = g.x + dirOf(g.moverColor);
+  
+    // 出界：移除群組（可能混色），回報 removed
+    if(nx < 1 || nx > W){
       const removed = {B:0, W:0};
       for(const yy of g.ys){
         const c = b[g.x][yy];
-        if(c==='B') removed.B++;
-        if(c==='W') removed.W++;
-        b[g.x][yy]=null;
+        if(c === 'B') removed.B++;
+        if(c === 'W') removed.W++;
+        b[g.x][yy] = null;
       }
-      g.x=nx;
+      g.x = nx;
       return { borneOff:true, removed, blocked:false };
     }
-
+  
+    // 目的欄位同高度必須是空的
     for(const yy of g.ys){
-      if(b[nx][yy] !== null) return { borneOff:false, removed:{B:0,W:0}, blocked:true };
+      if(b[nx][yy] !== null){
+        return { borneOff:false, removed:{B:0, W:0}, blocked:true };
+      }
     }
-
-    for(const yy of g.ys) b[nx][yy]=b[g.x][yy];
-    for(const yy of g.ys) b[g.x][yy]=null;
-    g.x=nx;
-    return { borneOff:false, removed:{B:0,W:0}, blocked:false };
+  
+    // 搬移
+    for(const yy of g.ys) b[nx][yy] = b[g.x][yy];
+    for(const yy of g.ys) b[g.x][yy] = null;
+    g.x = nx;
+  
+    return { borneOff:false, removed:{B:0, W:0}, blocked:false };
   }
-  function moveForward1(g){ return moveForward1On(board, g); }
+  
+  function moveForward1(g){
+    return moveForward1On(board, g);
+  }
 
   function playerHasPiecesOn(b, color){
     for(let x=1;x<=W;x++){
