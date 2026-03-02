@@ -246,6 +246,10 @@
   const INITIAL_PIECES_PER_SIDE = 6;
   const WIN = 1e9;
 
+  // ✅ 新規則：連續第 5 次 NOOP（含 PASS）=> 和局
+  const DRAW_NOOP_N = 5;
+  let noopStreak = 0;
+
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
   const board = Array.from({length: W+1}, ()=>Array(H+1).fill(null));
@@ -330,7 +334,7 @@
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
-  // 盤面 key（不含 depth），用於 changed/NOOP 判斷（僅用於顯示與除錯）
+  // 盤面 key（不含 depth）
   function posKey(b){
     let s = '';
     for(let y=1;y<=H;y++){
@@ -357,6 +361,19 @@
 
     blacks.forEach(([x,y])=>b[x][y]='B');
     whites.forEach(([x,y])=>b[x][y]='W');
+  }
+
+  // ===== NOOP 和局規則 =====
+  function resetNoopStreak(){ noopStreak = 0; }
+  function bumpNoopStreakAndCheckDraw(showAlert = false){
+    noopStreak++;
+    log(`NOOP累積：${noopStreak}/${DRAW_NOOP_N}`);
+    if(noopStreak >= DRAW_NOOP_N){
+      appendMoveLine(`== 和局：連續 NOOP 達 ${DRAW_NOOP_N} 次 ==`);
+      if(showAlert) alert('和局！');
+      return { over:true, draw:true };
+    }
+    return { over:false, draw:false };
   }
 
   // ===== 規則核心 =====
@@ -478,18 +495,18 @@
 
     if(!bHas && wHas){
       if(showAlert) alert('黑棋勝利！');
-      return { over:true, winner:'B' };
+      return { over:true, winner:'B', draw:false };
     }
     if(!wHas && bHas){
       if(showAlert) alert('白棋勝利！');
-      return { over:true, winner:'W' };
+      return { over:true, winner:'W', draw:false };
     }
     if(!bHas && !wHas){
       const w = moverColor || lastMover || 'B';
       if(showAlert) alert(`${w==='B'?'黑棋':'白棋'}勝利！`);
-      return { over:true, winner:w };
+      return { over:true, winner:w, draw:false };
     }
-    return { over:false, winner:null };
+    return { over:false, winner:null, draw:false };
   }
 
   // ===== 重生/下落 =====
@@ -563,7 +580,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子（✅ 帶 lastMover 進搜尋狀態，修正「兩邊都沒棋」判勝負一致性）=====
+  // ===== 模擬走子（帶 lastMover 進搜尋狀態）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -614,7 +631,7 @@
       let winner = null;
       if(!bHas && wHas) winner = 'B';
       else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒：最後行動者勝（=turnColor）
+      else winner = turnColor;
 
       const changed = (posKey(b) !== beforeKey);
       return {
@@ -665,7 +682,7 @@
     return moves;
   }
 
-  // ===== Alpha-Beta（✅ TT 與終局判定都納入 lastMover）=====
+  // ===== Alpha-Beta（TT 納入 lastMover；注意：此版本不在搜尋內判 NOOP 和局，只在真實對局判）=====
   const TT = new Map();
 
   function boardKey(b, turnColor, depth, lastMoverKey){
@@ -684,11 +701,9 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    // 終局（黑沒棋=黑勝 => 對黑正分）
     if(!blackHas && whiteHas) return (WIN + depth);      // 黑勝
     if(!whiteHas && blackHas) return (-WIN - depth);     // 白勝
 
-    // ✅ 修正：兩邊都沒棋 => lastMover 勝（與 checkGameOver 一致）
     if(!blackHas && !whiteHas){
       return (lastMoverAB === 'B') ? (WIN + depth) : (-WIN - depth);
     }
@@ -708,8 +723,6 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // PASS：沒得走就換手（消耗深度）
-    // ✅ PASS 也算一次「行動」，因此 lastMoverAB 變成 turnColor
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta, turnColor);
       TT.set(key, { value: v, flag: 'EXACT' });
@@ -752,7 +765,6 @@
     return best;
   }
 
-  // 列出每個可能棋步的 minimax 值
   function logAllMoveScores(scoredMoves, chosen){
     const side = (turn === 'B') ? '黑' : '白';
     appendMoveLine(`== AI分析 ${side}回合 depth=${SEARCH_DEPTH} 候選=${scoredMoves.length} ==`);
@@ -814,7 +826,7 @@
 
     isAnimating = true;
 
-    // ✅ 規則：此回合「行動者」先記下來（即使最後 PASS）
+    // 此回合行動者（即使 PASS）
     lastMover = turn;
 
     const above=countAllAbove(selected.x,selected.y);
@@ -890,6 +902,19 @@
     if(didMove) appendMoveLine(`${turn==='B'?'黑':'白'}: (${selected.x},${selected.y})`);
     else       appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
 
+    // ✅ NOOP streak：只看「盤面是否有實際移動」
+    // - didMove=false => NOOP+1
+    // - didMove=true  => streak 清零
+    if(!didMove){
+      const dr = bumpNoopStreakAndCheckDraw(true);
+      if(dr.over){
+        isAnimating = false;
+        return;
+      }
+    } else {
+      resetNoopStreak();
+    }
+
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
 
@@ -950,12 +975,12 @@
     const mv = pickBestAIMove();
 
     if(!mv){
-      const over2 = checkGameOver(false, lastMover);
-      if(over2.over) return;
-
+      // 沒棋可走 => PASS（也算 NOOP）
       appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
-      // ✅ 真實對局：PASS 也是行動，lastMover 更新成當前方
       lastMover = turn;
+
+      const dr = bumpNoopStreakAndCheckDraw(true);
+      if(dr.over) return;
 
       turn = otherOf(turn);
       selected = null;
@@ -1025,6 +1050,10 @@
     group=null;
     isAnimating=false;
     log('');
+
+    // ✅ reset 也要清 NOOP 計數
+    resetNoopStreak();
+
     render();
     maybeTriggerAIMove();
   };
@@ -1034,7 +1063,11 @@
   placeInitial();
   applyMode(modeSel.value);
   render();
+
+  // ✅ 初始 NOOP streak = 0
+  resetNoopStreak();
 })();
 </script>
+  
 </body>
 </html>
