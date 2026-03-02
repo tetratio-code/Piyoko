@@ -157,6 +157,30 @@
     .grpGlow{
       box-shadow: 0 0 0 3px rgba(56,189,248,0.35) inset;
     }
+
+    /* Debug panel */
+    .debugTitle{
+      margin-top: 12px;
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--text);
+      opacity: .9;
+      letter-spacing: .2px;
+    }
+    .debugBox{
+      margin-top: 6px;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(0,0,0,0.18);
+      color: rgba(229,231,235,0.90);
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      max-height: 280px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
   </style>
 </head>
 
@@ -167,7 +191,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v1.7</div>
+    <div class="title">小雞棋debug</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -189,6 +213,9 @@
     </div>
 
     <div id="log" class="hint"></div>
+
+    <div class="debugTitle">Debug（不會被刷掉，會一直累積）</div>
+    <div id="debug" class="debugBox"></div>
   </div>
 </div>
 
@@ -211,6 +238,7 @@
 
   const gridEl = document.getElementById('grid');
   const logEl = document.getElementById('log');
+  const debugEl = document.getElementById('debug');
   const turnBadgeEl = document.getElementById('turnBadge');
   const turnTextEl = document.getElementById('turnText');
   const modeSel = document.getElementById('modeSel');
@@ -228,6 +256,28 @@
   function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
 
   function log(msg){ logEl.textContent = msg || ''; }
+
+  function nowStamp(){
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    const ms = String(d.getMilliseconds()).padStart(3,'0');
+    return `${hh}:${mm}:${ss}.${ms}`;
+  }
+  function debug(msg){
+    const line = `[${nowStamp()}] ${msg}`;
+    debugEl.textContent += (debugEl.textContent ? "\n" : "") + line;
+
+    // 保持卷軸在底部（但不清除內容）
+    debugEl.scrollTop = debugEl.scrollHeight;
+
+    // 防止無限爆長：超過約 8000 行就裁切前面（仍然「不會被刷掉」到只剩一行那種）
+    const lines = debugEl.textContent.split("\n");
+    if(lines.length > 8000){
+      debugEl.textContent = lines.slice(lines.length - 6000).join("\n");
+    }
+  }
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
@@ -388,6 +438,15 @@
   }
   function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
 
+  function countPiecesOn(b){
+    let B=0,W=0;
+    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++){
+      if(b[x][y]==='B') B++;
+      else if(b[x][y]==='W') W++;
+    }
+    return {B,W};
+  }
+
   // ===== 終局判定 =====
   function checkGameOver(lastMoverColor = null, showAlert = false){
     const bHas = playerHasPieces('B');
@@ -494,7 +553,6 @@
 
     let didMove = false;
 
-    // 上移
     for(let i=0;i<moveAmount;i++){
       if(moveUpStepOn(b, g)) didMove = true;
       else break;
@@ -544,7 +602,6 @@
 
     if(carriedOutOpponent > 0){
       respawnDropSim(b, opponent, carriedOutOpponent);
-      // 即使重生後盤面剛好長一樣，也算有意義（回合不換）
       return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed: true };
     }
 
@@ -626,6 +683,7 @@
     TT.clear();
 
     const moves = listLegalMoves(board, turn);
+    debug(`pickBestAIMove: turn=${turn} legalMoves=${moves.length}`);
     if(moves.length === 0) return null;
 
     const isMax = (turn === 'B');
@@ -650,7 +708,11 @@
       if(alpha >= beta) break;
     }
 
-    return bestMove ? { x: bestMove.x, y: bestMove.y, score: bestVal } : null;
+    if(bestMove){
+      debug(`AI best: (${bestMove.x},${bestMove.y}) score=${bestVal}`);
+      return { x: bestMove.x, y: bestMove.y, score: bestVal };
+    }
+    return null;
   }
 
   // ===== 走子（動畫版）：也用 didMove 判斷 PASS =====
@@ -664,6 +726,7 @@
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
     log(`上方棋子數=${above}，移動量=${moveAmount}`);
+    debug(`performMove: turn=${turn} select=(${selected.x},${selected.y}) above=${above} moveAmount=${moveAmount} groupSize=${group.ys.length}`);
 
     let didMove = false;
 
@@ -717,6 +780,8 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
+    debug(`performMove end: didMove=${didMove} carriedOut(B=${carriedOut.B},W=${carriedOut.W})`);
+
     const over1 = checkGameOver(turn, false);
     if(over1.over){
       render();
@@ -730,6 +795,7 @@
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
     if(carriedOutOpponent > 0){
+      debug(`carry out opponent: opponent=${opponent} count=${carriedOutOpponent} => respawn and keep turn`);
       await respawnAndDrop(opponent, carriedOutOpponent);
 
       const over2 = checkGameOver(turn, false);
@@ -741,7 +807,6 @@
         return;
       }
 
-      // 帶出對方：回合不換
       selected = null;
       group = null;
       render();
@@ -750,8 +815,8 @@
       return;
     }
 
-    // ✅ 只有真的「完全沒動」才 PASS
     if(!didMove){
+      debug(`PASS: no movement happened => switch turn ${turn} -> ${opponent}`);
       turn = opponent;
       selected = null;
       group = null;
@@ -762,7 +827,7 @@
       return;
     }
 
-    // 正常換手
+    debug(`switch turn: ${turn} -> ${opponent}`);
     turn = opponent;
     selected = null;
     group = null;
@@ -788,11 +853,13 @@
     if(over2.over) return;
 
     log(`AI 思考中（αβ 深度 ${SEARCH_DEPTH}）...`);
-    await sleep(0);
+    debug(`AI turn start: turn=${turn}, depth=${SEARCH_DEPTH}`);
 
     const mv = pickBestAIMove();
 
     if(!mv){
+      const cnt = countPiecesOn(board);
+      debug(`AI PASS (no meaningful moves). boardCount B=${cnt.B} W=${cnt.W}. switch turn ${turn} -> ${otherOf(turn)}`);
       turn = otherOf(turn);
       selected = null;
       group = null;
@@ -833,6 +900,7 @@
   function applyMode(v){
     aiBlack = (v === 'ab' || v === 'aa');
     aiWhite = (v === 'aw' || v === 'aa');
+    debug(`mode change: ${v} => aiBlack=${aiBlack} aiWhite=${aiWhite}`);
     updateTurnUI();
     render();
     maybeTriggerAIMove();
@@ -847,6 +915,7 @@
     group=null;
     isAnimating=false;
     log('');
+    debug('RESET pressed (debug not cleared)');
     render();
     maybeTriggerAIMove();
   };
@@ -856,6 +925,7 @@
   placeInitial();
   applyMode(modeSel.value);
   render();
+  debug('INIT done');
 })();
 </script>
 </body>
