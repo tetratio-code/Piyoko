@@ -52,7 +52,7 @@
       margin: 8px 0;
     }
 
-    button, select{
+    button, select, input[type="range"]{
       background: rgba(56,189,248,0.15);
       border: 1px solid rgba(56,189,248,0.35);
       color: var(--text);
@@ -67,6 +67,13 @@
       border: 1px solid rgba(255,255,255,0.12);
       cursor: default;
       font-weight: 650;
+    }
+
+    input[type="range"]{
+      padding: 0;
+      height: 32px;
+      width: 170px;
+      cursor: pointer;
     }
 
     .hint{
@@ -158,8 +165,8 @@
       box-shadow: 0 0 0 3px rgba(56,189,248,0.35) inset;
     }
 
-    /* Debug panel */
-    .debugTitle{
+    /* 棋譜 */
+    .movesTitle{
       margin-top: 12px;
       font-size: 12px;
       font-weight: 900;
@@ -167,13 +174,13 @@
       opacity: .9;
       letter-spacing: .2px;
     }
-    .debugBox{
+    .movesBox{
       margin-top: 6px;
       padding: 10px;
       border-radius: 10px;
       border: 1px solid rgba(255,255,255,0.10);
       background: rgba(0,0,0,0.18);
-      color: rgba(229,231,235,0.90);
+      color: rgba(229,231,235,0.92);
       font-size: 12px;
       line-height: 1.45;
       white-space: pre-wrap;
@@ -191,7 +198,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋</div>
+    <div class="title">小雞棋v2.0</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -205,17 +212,23 @@
         <option value="aw">AI 執白</option>
         <option value="aa">雙方 AI</option>
       </select>
-      <span class="badge" title="Alpha-Beta 搜索深度">深度：6</span>
+    </div>
+
+    <div class="row" style="align-items:center;">
+      <label style="font-size:12px;color:var(--muted);font-weight:900;">搜索深度</label>
+      <input id="depthRange" type="range" min="1" max="10" step="1" value="6" />
+      <span id="depthBadge" class="badge" title="Alpha-Beta 搜索深度">深度：6</span>
     </div>
 
     <div class="row">
       <button id="btnReset">Reset</button>
+      <button id="btnClearMoves" title="清空棋譜（不影響盤面）">Clear Moves</button>
     </div>
 
     <div id="log" class="hint"></div>
 
-    <div class="debugTitle">Debug（不會被刷掉，會一直累積）</div>
-    <div id="debug" class="debugBox"></div>
+    <div class="movesTitle">棋譜（累積）</div>
+    <div id="moves" class="movesBox"></div>
   </div>
 </div>
 
@@ -227,10 +240,11 @@
   const W = 12;
   const H = 12;
   const POINTS_PER_TURN = 6;
-  const SEARCH_DEPTH = 6;
+
+  let SEARCH_DEPTH = 6; // ✅ 可調整（由 slider 更新）
 
   const INITIAL_PIECES_PER_SIDE = 6;
-  const WIN = 1e9;  // 勝負評分的「大數」即可，不要拿來當 alpha/beta/best 的哨兵值
+  const WIN = 1e9;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
@@ -238,10 +252,13 @@
 
   const gridEl = document.getElementById('grid');
   const logEl = document.getElementById('log');
-  const debugEl = document.getElementById('debug');
+  const movesEl = document.getElementById('moves');
   const turnBadgeEl = document.getElementById('turnBadge');
   const turnTextEl = document.getElementById('turnText');
   const modeSel = document.getElementById('modeSel');
+
+  const depthRange = document.getElementById('depthRange');
+  const depthBadge = document.getElementById('depthBadge');
 
   let turn='B';
   let selected=null;
@@ -251,7 +268,6 @@
   let aiBlack=false;
   let aiWhite=false;
 
-  // ✅ 用於「雙方都出界」這種極少數狀況的最後行動者（避免錯判/亂判）
   let lastMover = 'B';
 
   function dirOf(c){ return c==='B'?1:-1; }
@@ -260,36 +276,14 @@
 
   function log(msg){ logEl.textContent = msg || ''; }
 
-  function nowStamp(){
-    const d = new Date();
-    const hh = String(d.getHours()).padStart(2,'0');
-    const mm = String(d.getMinutes()).padStart(2,'0');
-    const ss = String(d.getSeconds()).padStart(2,'0');
-    const ms = String(d.getMilliseconds()).padStart(3,'0');
-    return `${hh}:${mm}:${ss}.${ms}`;
-  }
-  function debug(msg){
-    const line = `[${nowStamp()}] ${msg}`;
-    debugEl.textContent += (debugEl.textContent ? "\n" : "") + line;
-    debugEl.scrollTop = debugEl.scrollHeight;
-
-    const lines = debugEl.textContent.split("\n");
+  function appendMoveLine(line){
+    movesEl.textContent += (movesEl.textContent ? "\n" : "") + line;
+    movesEl.scrollTop = movesEl.scrollHeight;
+    // 防止無限爆長
+    const lines = movesEl.textContent.split("\n");
     if(lines.length > 8000){
-      debugEl.textContent = lines.slice(lines.length - 6000).join("\n");
+      movesEl.textContent = lines.slice(lines.length - 6000).join("\n");
     }
-  }
-
-  function deepCopyBoard(src){ return src.map(col => col.slice()); }
-
-  function clearBoard(b = board){
-    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
-  }
-
-  function placeInitial(b = board){
-    const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
-    const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
-    blacks.forEach(([x,y])=>b[x][y]='B');
-    whites.forEach(([x,y])=>b[x][y]='W');
   }
 
   function updateTurnUI(){
@@ -324,6 +318,19 @@
       }
     }
     updateTurnUI();
+  }
+
+  function deepCopyBoard(src){ return src.map(col => col.slice()); }
+
+  function clearBoard(b = board){
+    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
+  }
+
+  function placeInitial(b = board){
+    const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
+    const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
+    blacks.forEach(([x,y])=>b[x][y]='B');
+    whites.forEach(([x,y])=>b[x][y]='W');
   }
 
   // ===== 規則核心 =====
@@ -447,12 +454,11 @@
     return {B,W};
   }
 
-  // ===== 終局判定（✅ 修正：不再用 turn 當 lastMover 亂判）=====
+  // ===== 終局判定 =====
   function checkGameOver(showAlert = false, moverColor = null){
     const bHas = playerHasPieces('B');
     const wHas = playerHasPieces('W');
 
-    // 任一方「己方棋子全部出界」即勝
     if(!bHas && wHas){
       if(showAlert) alert('黑棋勝利！');
       return { over:true, winner:'B' };
@@ -461,15 +467,11 @@
       if(showAlert) alert('白棋勝利！');
       return { over:true, winner:'W' };
     }
-
-    // 兩邊都沒有：極少數（混色群組同時出界才會發生）
-    // 以「最後行動者」勝（避免你 log 裡那種 PASS 分支錯判）
     if(!bHas && !wHas){
       const w = moverColor || lastMover || 'B';
       if(showAlert) alert(`${w==='B'?'黑棋':'白棋'}勝利！`);
       return { over:true, winner:w };
     }
-
     return { over:false, winner:null };
   }
 
@@ -544,7 +546,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子：用「過程是否真的動過」決定 changed =====
+  // ===== 模擬走子 =====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -592,14 +594,13 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
-    // ✅ 終局（勝利方 = 沒有棋子那一方）
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
     if(!bHas || !wHas){
       let winner = null;
       if(!bHas && wHas) winner = 'B';
       else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒有：以最後行動者勝
+      else winner = turnColor;
       return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed: didMove };
     }
 
@@ -626,7 +627,7 @@
     return moves;
   }
 
-  // ===== Alpha-Beta（PASS 換手）=====
+  // ===== Alpha-Beta =====
   const TT = new Map();
   function boardKey(b, turnColor, depth){
     let s = turnColor + '|' + depth + '|';
@@ -644,11 +645,8 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    // ✅ 黑棋沒棋子 => 黑棋勝（對黑極佳）
     if(!blackHas && whiteHas) return (WIN + depth);
-    // ✅ 白棋沒棋子 => 白棋勝（對黑極差）
     if(!whiteHas && blackHas) return (-WIN - depth);
-    // 兩邊都沒棋子：極少數，這裡回 0（或你也可改成依 lastMover 判）
     if(!blackHas && !whiteHas) return 0;
 
     if(depth === 0) return evaluateBoard(b);
@@ -659,7 +657,6 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // ✅ 無棋可走 => PASS 換手（消耗深度）
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
       TT.set(key, { value: v, alpha, beta });
@@ -671,7 +668,6 @@
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
-    // ✅ 重要：不要用 WIN 當哨兵，改用 Infinity
     let best = isMax ? -Infinity : Infinity;
 
     for(const m of moves){
@@ -696,7 +692,6 @@
     TT.clear();
 
     const moves = listLegalMoves(board, turn);
-    debug(`pickBestAIMove: turn=${turn} legalMoves=${moves.length}`);
     if(moves.length === 0) return null;
 
     const isMax = (turn === 'B');
@@ -704,18 +699,14 @@
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
-    // ✅ 重要：alpha/beta 也用 Infinity
     let alpha = -Infinity, beta = Infinity;
 
-    // ✅ 重要：先用第一手當預設（避免所有 v 都 < -WIN 或 > WIN 造成 bestMove=null）
     let bestMove = moves[0];
     let bestVal = alphabeta(bestMove.sim.b, bestMove.sim.nextTurn, SEARCH_DEPTH - 1, alpha, beta);
 
-    // 先更新窗格
     if(isMax) alpha = Math.max(alpha, bestVal);
     else      beta  = Math.min(beta, bestVal);
 
-    // 其他手繼續比較
     for(let i=1;i<moves.length;i++){
       const m = moves[i];
       const v = alphabeta(m.sim.b, m.sim.nextTurn, SEARCH_DEPTH - 1, alpha, beta);
@@ -730,25 +721,21 @@
       if(alpha >= beta) break;
     }
 
-    debug(`AI best: (${bestMove.x},${bestMove.y}) score=${bestVal}`);
     return { x: bestMove.x, y: bestMove.y, score: bestVal };
   }
 
-  // ===== 走子（動畫版）：也用 didMove 判斷 PASS =====
+  // ===== 走子（動畫版）=====
   async function performMove(){
     if(isAnimating) return;
     if(!selected||!group) return;
     if(group.moverColor!==turn) return;
 
     isAnimating = true;
-
-    // ✅ 記錄最後行動者（供 checkGameOver 在「雙方都出界」時用）
     lastMover = turn;
 
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
     log(`上方棋子數=${above}，移動量=${moveAmount}`);
-    debug(`performMove: turn=${turn} select=(${selected.x},${selected.y}) above=${above} moveAmount=${moveAmount} groupSize=${group.ys.length}`);
 
     let didMove = false;
 
@@ -802,9 +789,7 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    debug(`performMove end: didMove=${didMove} carriedOut(B=${carriedOut.B},W=${carriedOut.W})`);
-
-    // ✅ 走完立刻判斷終局（用 lastMover，不用 turn 亂傳）
+    // ✅ 先判斷終局
     const over1 = checkGameOver(false, lastMover);
     if(over1.over){
       render();
@@ -817,8 +802,14 @@
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
+    // ✅ 棋譜：記錄「這手」的落點（含 PASS）
+    if(didMove){
+      appendMoveLine(`${turn==='B'?'黑':'白'}: (${selected.x},${selected.y})`);
+    } else {
+      appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
+    }
+
     if(carriedOutOpponent > 0){
-      debug(`carry out opponent: opponent=${opponent} count=${carriedOutOpponent} => respawn and keep turn`);
       await respawnAndDrop(opponent, carriedOutOpponent);
 
       const over2 = checkGameOver(false, lastMover);
@@ -839,7 +830,6 @@
     }
 
     if(!didMove){
-      debug(`PASS: no movement happened => switch turn ${turn} -> ${opponent}`);
       turn = opponent;
       selected = null;
       group = null;
@@ -850,7 +840,6 @@
       return;
     }
 
-    debug(`switch turn: ${turn} -> ${opponent}`);
     turn = opponent;
     selected = null;
     group = null;
@@ -864,7 +853,6 @@
   async function maybeTriggerAIMove(){
     if(isAnimating) return;
 
-    // ✅ 先檢查終局：不要讓 AI 在終局後繼續 PASS/走子
     const over0 = checkGameOver(false, lastMover);
     if(over0.over) return;
 
@@ -877,20 +865,15 @@
     if(over1.over) return;
 
     log(`AI 思考中（αβ 深度 ${SEARCH_DEPTH}）...`);
-    debug(`AI turn start: turn=${turn}, depth=${SEARCH_DEPTH}`);
 
     const mv = pickBestAIMove();
 
     if(!mv){
-      // ✅ PASS 前再確認一次是否其實已經終局
       const over2 = checkGameOver(false, lastMover);
-      if(over2.over){
-        debug(`GAME OVER detected before PASS. winner=${over2.winner}`);
-        return;
-      }
+      if(over2.over) return;
 
-      const cnt = countPiecesOn(board);
-      debug(`AI PASS (no meaningful moves). boardCount B=${cnt.B} W=${cnt.W}`);
+      // 棋譜：AI PASS
+      appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
 
       turn = otherOf(turn);
       selected = null;
@@ -932,12 +915,26 @@
   function applyMode(v){
     aiBlack = (v === 'ab' || v === 'aa');
     aiWhite = (v === 'aw' || v === 'aa');
-    debug(`mode change: ${v} => aiBlack=${aiBlack} aiWhite=${aiWhite}`);
     updateTurnUI();
     render();
     maybeTriggerAIMove();
   }
   modeSel.addEventListener('change', (e)=> applyMode(e.target.value));
+
+  // ✅ 搜索深度 slider
+  function setDepth(n){
+    SEARCH_DEPTH = n;
+    depthBadge.textContent = `深度：${n}`;
+    log(`搜索深度已設定為 ${n}`);
+  }
+  depthRange.addEventListener('input', e=>{
+    setDepth(Number(e.target.value));
+  });
+  setDepth(Number(depthRange.value));
+
+  document.getElementById('btnClearMoves').onclick=()=>{
+    movesEl.textContent = '';
+  };
 
   document.getElementById('btnReset').onclick=()=>{
     clearBoard();
@@ -948,7 +945,8 @@
     group=null;
     isAnimating=false;
     log('');
-    debug('RESET pressed (debug not cleared)');
+    // ✅ 不清除棋譜（你若希望 reset 也清除，把下一行取消註解）
+    // movesEl.textContent = '';
     render();
     maybeTriggerAIMove();
   };
@@ -958,7 +956,6 @@
   placeInitial();
   applyMode(modeSel.value);
   render();
-  debug('INIT done');
 })();
 </script>
 </body>
