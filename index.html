@@ -329,7 +329,7 @@
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
-  // ✅ 盤面 key（不含 depth），用於判斷「淨變化」與避免 NOOP 走法被當合法
+  // 盤面 key（不含 depth）
   function posKey(b){
     let s = '';
     for(let y=1;y<=H;y++){
@@ -347,10 +347,13 @@
   }
 
   function placeInitial(b = board){
-    const blacks=[[1,1],[1,2],[2,2],[2,3]];
-    const whites=[[2,1]];
-    //const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
-    //const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
+    // 你現在用來測循環的局面
+    const blacks=[[7,1],[8,2]];
+    const whites=[[7,2],[7,3],[8,1]];
+
+    // 原始開局
+    // const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
+    // const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
 
     blacks.forEach(([x,y])=>b[x][y]='B');
     whites.forEach(([x,y])=>b[x][y]='W');
@@ -560,7 +563,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子（✅ changed 改為「盤面淨變化」）=====
+  // ===== 模擬走子（changed = 盤面淨變化）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -606,12 +609,11 @@
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
 
-    // 終局
     if(!bHas || !wHas){
       let winner = null;
       if(!bHas && wHas) winner = 'B';
       else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒棋子：以最後行動者勝（你目前規則）
+      else winner = turnColor;
 
       const changed = (posKey(b) !== beforeKey);
       return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed };
@@ -630,19 +632,21 @@
     return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed };
   }
 
+  // ✅ 這裡是唯一關鍵改動：不再要求 sim.changed
+  //    => NOOP（盤面不變）的走法也算「合法走法」，從而允許重複局面 → 和局變得可能發生
   function listLegalMoves(b, turnColor){
     const moves = [];
     for(let x=1;x<=W;x++){
       for(let y=1;y<=H;y++){
         if(b[x][y] !== turnColor) continue;
         const sim = simulateMoveFrom(b, x, y, turnColor);
-        if(sim.ok && sim.changed) moves.push({ x, y, sim });
+        if(sim.ok) moves.push({ x, y, sim }); // ✅ 不濾掉 sim.changed===false
       }
     }
     return moves;
   }
 
-  // ===== Alpha-Beta（修正版 TT：EXACT/LOWER/UPPER）=====
+  // ===== Alpha-Beta（TT：EXACT/LOWER/UPPER）=====
   const TT = new Map();
 
   function boardKey(b, turnColor, depth){
@@ -661,16 +665,10 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    // 終局（黑沒棋=黑勝 => 對黑正分）
-    if(!blackHas && whiteHas) return (WIN + depth);      // 黑勝
-    if(!whiteHas && blackHas) return (-WIN - depth);     // 白勝
+    if(!blackHas && whiteHas) return (WIN + depth);
+    if(!whiteHas && blackHas) return (-WIN - depth);
 
-    // ✅ 兩邊都沒棋：用「最後行動者」判勝負（此處無 lastMover，只能用 turnColor 推）
-    // 你的 simulateMoveFrom 目前回傳 nextTurn = turnColor（不換手）表示「最後行動者」就是 turnColor
-    // 所以在 alphabeta 的狀態下，「輪到 turnColor」代表上一手也可能是 turnColor 或對手；此規則本身不完美。
-    // 但至少不要回 0，回一個確定的勝負分以避免誤導。
     if(!blackHas && !whiteHas){
-      // 保守：視為「上一手行動者 = otherOf(turnColor)」勝
       const winner = otherOf(turnColor);
       return (winner === 'B') ? (WIN + depth) : (-WIN - depth);
     }
@@ -690,7 +688,7 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // PASS：沒得走就換手（消耗深度）
+    // 若真的完全沒有可選（通常是終局才會發生），就 PASS
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
       TT.set(key, { value: v, flag: 'EXACT' });
@@ -698,7 +696,6 @@
     }
 
     const isMax = (turnColor === 'B');
-
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
@@ -726,7 +723,6 @@
     return best;
   }
 
-  // ✅ 強制輸出：列出每個可能棋步的 minimax 值
   function logAllMoveScores(scoredMoves, chosen){
     const side = (turn === 'B') ? '黑' : '白';
     appendMoveLine(`== AI分析 ${side}回合 depth=${SEARCH_DEPTH} 候選=${scoredMoves.length} ==`);
@@ -743,7 +739,6 @@
   }
 
   function pickBestAIMove(){
-    // root：每個候選都用 full window 求「可比較的值」
     TT.clear();
 
     const moves = listLegalMoves(board, turn);
@@ -838,7 +833,6 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    // 先判斷終局
     const over1 = checkGameOver(false, lastMover);
     if(over1.over){
       render();
@@ -875,6 +869,7 @@
       return;
     }
 
+    // NOOP 仍然當作 PASS 換手（盤面不變 → 容易進入重複局面 → 和局可發生）
     if(!didMove){
       turn = opponent;
       selected = null;
@@ -965,7 +960,6 @@
   }
   modeSel.addEventListener('change', (e)=> applyMode(e.target.value));
 
-  // 搜索深度 slider
   function setDepth(n){
     SEARCH_DEPTH = n;
     depthBadge.textContent = `深度：${n}`;
@@ -991,7 +985,6 @@
     maybeTriggerAIMove();
   };
 
-  // init
   clearBoard();
   placeInitial();
   applyMode(modeSel.value);
