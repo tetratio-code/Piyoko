@@ -31,7 +31,7 @@
     }
 
     .panel{
-      min-width: 340px;
+      min-width: 360px;
       background: var(--panel-bg);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 14px;
@@ -174,12 +174,13 @@
     </div>
 
     <div class="row">
-      <label style="font-size:12px;color:var(--muted);font-weight:800;">對戰模式</label>
+      <label style="font-size:12px;color:var(--muted);font-weight:900;">對戰模式</label>
       <select id="modeSel" title="對戰模式">
         <option value="hh">雙方人類</option>
         <option value="ab">AI 執黑</option>
         <option value="aw">AI 執白</option>
       </select>
+      <span class="badge" title="Alpha-Beta 搜索深度">深度：6</span>
     </div>
 
     <div class="row">
@@ -193,11 +194,15 @@
 <script>
 (() => {
   const STEP_DELAY = 100;
-  const AI_THINK_DELAY = 220;
+  const AI_THINK_DELAY = 150;
 
   const W = 12;
   const H = 12;
   const POINTS_PER_TURN = 6;
+  const SEARCH_DEPTH = 6; // 預設搜索深度 6 步（ply）
+
+  const INITIAL_PIECES_PER_SIDE = 6;
+  const INF = 1e9;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
@@ -279,7 +284,8 @@
     updateTurnUI();
   }
 
-  // 群組：選定棋子 + 同欄上方所有棋子（不分顏色，直到遇到空格為止）
+  // ===== 規則核心（含 on-board / simulate 用的 *_On 版本） =====
+
   function computeGroupOn(b, x,y){
     const moverColor=b[x][y];
     if(!moverColor) return null;
@@ -293,7 +299,6 @@
   }
   function computeGroup(x,y){ return computeGroupOn(board, x, y); }
 
-  // 移動量：依「所有上方棋子數」（不分顏色，且在同一堆疊直到遇空格）
   function countAllAboveOn(b, x,y){
     let c=0;
     for(let yy=y+1;yy<=H;yy++){
@@ -343,7 +348,7 @@
   }
   function moveDown1(g){ return moveDown1On(board, g); }
 
-  // 檢查可否「往前」：檢查「前下方」是否有其他棋子
+  // ✅ 改後的檢查：前下方
   function frontBlockedOn(b, g){
     const nx = g.x + dirOf(g.moverColor);
     if(nx<1 || nx>W) return false;
@@ -357,7 +362,6 @@
   }
   function frontBlocked(g){ return frontBlockedOn(board, g); }
 
-  // 往前 1 格；若出界 => 移除群組並回報移除的黑/白數量（混色）
   function moveForward1On(b, g){
     const nx=g.x+dirOf(g.moverColor);
 
@@ -384,6 +388,18 @@
   }
   function moveForward1(g){ return moveForward1On(board, g); }
 
+  function playerHasPiecesOn(b, color){
+    for(let x=1;x<=W;x++){
+      for(let y=1;y<=H;y++){
+        if(b[x][y] === color) return true;
+      }
+    }
+    return false;
+  }
+  function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
+
+  // ===== 重生與下落（動畫版 / 模擬版） =====
+
   async function dropPieceAt(x, y){
     while(y>1 && board[x][y-1]===null){
       board[x][y-1] = board[x][y];
@@ -399,7 +415,7 @@
 
     const spawnX = (color==='B') ? 1 : 12;
     for(let k=0; k<count; k++){
-      let targetY = H - k;
+      let targetY = H - k; // (x,12), (x,11)...
       while(targetY >= 1 && board[spawnX][targetY] !== null) targetY--;
       if(targetY < 1) break;
 
@@ -408,21 +424,8 @@
       await sleep(STEP_DELAY);
       await dropPieceAt(spawnX, targetY);
     }
-
-    log(`${color==='B'?'黑棋':'白棋'} 被帶出界 ${count} 顆 → 於 (${spawnX},12) 起重新生成並下落`);
   }
 
-  function playerHasPiecesOn(b, color){
-    for(let x=1;x<=W;x++){
-      for(let y=1;y<=H;y++){
-        if(b[x][y] === color) return true;
-      }
-    }
-    return false;
-  }
-  function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
-
-  // ======= AI：模擬走一步（不動畫） =======
   function respawnDropSim(b, color, count){
     if(count<=0) return;
     const spawnX = (color==='B') ? 1 : 12;
@@ -433,8 +436,6 @@
       if(y < 1) break;
 
       b[spawnX][y] = color;
-
-      // drop
       while(y > 1 && b[spawnX][y-1] === null){
         b[spawnX][y-1] = b[spawnX][y];
         b[spawnX][y] = null;
@@ -443,6 +444,39 @@
     }
   }
 
+  // ===== 評值函數（alpha-beta 用） =====
+  // 你給的例子剛好符合：scorePiece = min(14, x + y)（以黑棋為例）
+  // 白棋用鏡像 X：x' = (W+1 - x)，score = min(14, x' + y)
+  // 出棋盤外（已移除）視為 14 分：用 (初始數 - 盤面數) * 14 補上
+  function evaluateBoard(b){
+    let blackOn = 0, whiteOn = 0;
+    let blackScore = 0, whiteScore = 0;
+
+    for(let x=1;x<=W;x++){
+      for(let y=1;y<=H;y++){
+        const v = b[x][y];
+        if(v === 'B'){
+          blackOn++;
+          const s = Math.min(14, x + y);
+          blackScore += s;
+        } else if(v === 'W'){
+          whiteOn++;
+          const mirroredX = (W + 1) - x; // 以白棋往左對稱
+          const s = Math.min(14, mirroredX + y);
+          whiteScore += s;
+        }
+      }
+    }
+
+    const blackOff = INITIAL_PIECES_PER_SIDE - blackOn;
+    const whiteOff = INITIAL_PIECES_PER_SIDE - whiteOn;
+    blackScore += 14 * Math.max(0, blackOff);
+    whiteScore += 14 * Math.max(0, whiteOff);
+
+    return blackScore - whiteScore; // >0 對黑有利
+  }
+
+  // ===== 產生所有合法手（用於 AI / PASS 判定） =====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -453,12 +487,12 @@
     const above = countAllAboveOn(b, x, y);
     const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
 
-    // up
+    // 往上
     for(let i=0;i<moveAmount;i++){
       if(!moveUpStepOn(b, g)) break;
     }
 
-    // forward->down->pause(loop) logic (pause ignored)
+    // 前 -> 下 -> (暫停) -> loop（暫停不影響模擬）
     let carriedOut = {B:0, W:0};
     let safety = 0;
 
@@ -482,9 +516,9 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
-    // win check for mover
+    // 勝利（該方無棋）
     if(!playerHasPiecesOn(b, turnColor)){
-      return { ok:true, b, nextTurn: turnColor, winner: turnColor };
+      return { ok:true, b, nextTurn: turnColor, winner: turnColor, carriedOutOpponent: 0 };
     }
 
     const opponent = otherOf(turnColor);
@@ -492,50 +526,126 @@
 
     if(carriedOutOpponent > 0){
       respawnDropSim(b, opponent, carriedOutOpponent);
-      // opponent pieces carried out => turn stays with mover
+      // 依規則：帶出對方 => 回合不換
       return { ok:true, b, nextTurn: turnColor, carriedOutOpponent };
     }
 
-    // normal switch
+    // 正常換手
     return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0 };
   }
 
-  function pickRandomAIMove(){
-    const candidates = [];
+  function listLegalMoves(b, turnColor){
+    const moves = [];
     for(let x=1;x<=W;x++){
       for(let y=1;y<=H;y++){
-        if(board[x][y] !== turn) continue;
-        const sim = simulateMoveFrom(board, x, y, turn);
-        if(sim.ok) candidates.push({x,y});
+        if(b[x][y] !== turnColor) continue;
+        const sim = simulateMoveFrom(b, x, y, turnColor);
+        if(sim.ok) moves.push({ x, y, sim });
       }
     }
-    if(candidates.length === 0) return null;
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    return moves;
   }
 
-  async function maybeTriggerAIMove(){
-    if(isAnimating) return;
-    if(!isAI(turn)) return;
+  // ===== Alpha-Beta（深度 6）=====
+  const TT = new Map(); // transposition table
 
-    // 給 UI 一點喘息 + 模擬思考
-    await sleep(AI_THINK_DELAY);
+  function boardKey(b, turnColor, depth){
+    // 小盤面：用字串當 key 足夠
+    // row-major: y=1..H, x=1..W
+    let s = turnColor + '|' + depth + '|';
+    for(let y=1;y<=H;y++){
+      for(let x=1;x<=W;x++){
+        const v = b[x][y];
+        s += (v ? v : '.');
+      }
+      s += '/';
+    }
+    return s;
+  }
 
-    // 可能剛好被 reset 或模式改了
-    if(isAnimating || !isAI(turn)) return;
+  function alphabeta(b, turnColor, depth, alpha, beta){
+    // 終局勝負
+    const blackHas = playerHasPiecesOn(b, 'B');
+    const whiteHas = playerHasPiecesOn(b, 'W');
+    if(!blackHas) return -INF; // 白勝，對黑極差
+    if(!whiteHas) return INF;  // 黑勝，對黑極佳
 
-    const mv = pickRandomAIMove();
-    if(!mv){
-      log('AI 找不到可走的棋（理論上不該發生）。');
-      return;
+    if(depth === 0) return evaluateBoard(b);
+
+    const key = boardKey(b, turnColor, depth);
+    const hit = TT.get(key);
+    if(hit && hit.alpha <= alpha && hit.beta >= beta) return hit.value;
+
+    const moves = listLegalMoves(b, turnColor);
+
+    // PASS：沒有合法手 -> 依你說的「以己方最終移動後分數計算」
+    // 在 minimax 裡：對方節點若無手，直接評值（不再換手/不延伸）
+    if(moves.length === 0) return evaluateBoard(b);
+
+    const isMax = (turnColor === 'B'); // eval = 黑-白，所以黑最大化、白最小化
+
+    // move ordering：先看一步評值排序，加速 alpha-beta
+    for(const m of moves){
+      m.order = evaluateBoard(m.sim.b);
+    }
+    moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
+
+    let best = isMax ? -INF : INF;
+
+    for(const m of moves){
+      const v = alphabeta(m.sim.b, m.sim.nextTurn, depth - 1, alpha, beta);
+
+      if(isMax){
+        if(v > best) best = v;
+        if(best > alpha) alpha = best;
+        if(alpha >= beta) break;
+      } else {
+        if(v < best) best = v;
+        if(best < beta) beta = best;
+        if(alpha >= beta) break;
+      }
     }
 
-    selected = {x: mv.x, y: mv.y};
-    group = computeGroup(mv.x, mv.y);
-    render();
-    await sleep(50);
-    await performMove();
+    TT.set(key, { value: best, alpha, beta });
+    return best;
   }
 
+  function pickBestAIMove(){
+    TT.clear();
+
+    const moves = listLegalMoves(board, turn);
+    if(moves.length === 0) return null;
+
+    const isMax = (turn === 'B');
+    let bestMove = null;
+    let bestVal = isMax ? -INF : INF;
+
+    // root ordering
+    for(const m of moves){
+      m.order = evaluateBoard(m.sim.b);
+    }
+    moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
+
+    let alpha = -INF, beta = INF;
+
+    for(const m of moves){
+      const v = alphabeta(m.sim.b, m.sim.nextTurn, SEARCH_DEPTH - 1, alpha, beta);
+
+      if(isMax){
+        if(v > bestVal){ bestVal = v; bestMove = m; }
+        if(bestVal > alpha) alpha = bestVal;
+      } else {
+        if(v < bestVal){ bestVal = v; bestMove = m; }
+        if(bestVal < beta) beta = bestVal;
+      }
+
+      if(alpha >= beta) break;
+    }
+
+    return bestMove ? { x: bestMove.x, y: bestMove.y, score: bestVal } : null;
+  }
+
+  // ===== 走子（動畫版） =====
   async function performMove(){
     if(isAnimating) return;
     if(!selected||!group) return;
@@ -605,7 +715,7 @@
       return;
     }
 
-    // 新規則：若「對方棋子」在本回合被帶出界 => 回合不切換 + 對方棋子重生並下落
+    // 規則：若帶出對方棋子 => 回合不換 + 對方重生下落
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
@@ -616,7 +726,6 @@
       group = null;
       render();
       isAnimating = false;
-      // 若還是 AI 的回合，繼續走
       await maybeTriggerAIMove();
       return;
     }
@@ -631,7 +740,37 @@
     await maybeTriggerAIMove();
   }
 
-  // 人類點選：點一下就走（若該方為 AI 則忽略點擊）
+  // ===== AI 觸發 =====
+  async function maybeTriggerAIMove(){
+    if(isAnimating) return;
+    if(!isAI(turn)) return;
+
+    await sleep(AI_THINK_DELAY);
+    if(isAnimating || !isAI(turn)) return;
+
+    log(`AI 思考中（αβ 深度 ${SEARCH_DEPTH}）...`);
+    await sleep(0);
+
+    const mv = pickBestAIMove();
+    if(!mv){
+      // PASS：AI 無合法手（依你規則：被迫 PASS 時以當前局面評值，不換手、不延伸）
+      // 這裡直接結束（維持回合不變），避免卡住：改為換手也可以，但你規則沒定義「真的 PASS 換手」。
+      // 先保持 turn 不變，讓玩家/AI 可繼續（如果依規則永遠無手，會一直 PASS）。
+      log('AI 無合法手（PASS）。');
+      render();
+      return;
+    }
+
+    log(`AI 選擇 (${mv.x},${mv.y})，評分=${mv.score}`);
+
+    selected = {x: mv.x, y: mv.y};
+    group = computeGroup(mv.x, mv.y);
+    render();
+    await sleep(50);
+    await performMove();
+  }
+
+  // ===== 互動：人類點選（點一下就走；若該方為 AI 則忽略） =====
   gridEl.addEventListener('click', async e=>{
     if(isAnimating) return;
     if(isAI(turn)) return;
@@ -656,10 +795,8 @@
     aiWhite = (v === 'aw');
     updateTurnUI();
     render();
-    // 若切換後剛好輪到 AI，就讓 AI 走
     maybeTriggerAIMove();
   }
-
   modeSel.addEventListener('change', (e)=> applyMode(e.target.value));
 
   document.getElementById('btnReset').onclick=()=>{
