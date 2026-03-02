@@ -1,956 +1,237 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>小雞棋</title>
-  <style>
-    :root{
-      --cell: 56px;
-      --gap: 6px;
-
-      --page-bg: #0f1a14;
-      --panel-bg: rgba(255,255,255,0.04);
-
-      --board-bg: #768f5d;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
-    }
-
-    body{
-      margin:0; padding:18px;
-      background: var(--page-bg);
-      color: var(--text);
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", Arial;
-    }
-
-    .wrap{
-      display:flex; gap:18px; flex-wrap:wrap;
-      align-items:flex-start;
-    }
-
-    .panel{
-      min-width: 360px;
-      background: var(--panel-bg);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 14px;
-      padding: 14px 14px 10px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
-    }
-
-    .title{
-      font-size: 16px;
-      font-weight: 900;
-      letter-spacing: .6px;
-      margin-bottom: 10px;
-    }
-
-    .row{
-      display:flex; gap:10px; flex-wrap:wrap;
-      align-items:center;
-      margin: 8px 0;
-    }
-
-    button, select{
-      background: rgba(56,189,248,0.15);
-      border: 1px solid rgba(56,189,248,0.35);
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 10px;
-      cursor: pointer;
-      font-weight: 700;
-    }
-
-    select{
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.12);
-      cursor: default;
-      font-weight: 650;
-    }
-
-    .hint{
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.5;
-      margin-top: 8px;
-      white-space: pre-wrap;
-    }
-
-    .badge{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.10);
-      background: rgba(255,255,255,0.04);
-      font-size: 12px;
-      color: var(--text);
-      font-weight: 900;
-    }
-    .dot{
-      width:10px; height:10px; border-radius:999px;
-      background:#94a3b8;
-      box-shadow: 0 0 0 3px rgba(148,163,184,0.15);
-    }
-    .dot.black{ background:#0b1220; box-shadow:0 0 0 3px rgba(11,18,32,0.35); }
-    .dot.white{ background:#e5e7eb; box-shadow:0 0 0 3px rgba(229,231,235,0.20); }
-
-    .board{
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 14px;
-      padding: 12px;
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: repeat(12, var(--cell));
-      grid-template-rows: repeat(12, var(--cell));
-      gap: var(--gap);
-      background: var(--board-bg);
-      padding: var(--gap);
-      border-radius: 12px;
-    }
-
-    .cell{
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
-      border: 1px solid rgba(255,255,255,0.06);
-      border-radius: 10px;
-      position: relative;
-      display:flex;
-      align-items:flex-start;
-      justify-content:center;
-    }
-
-    .cell::after{
-      content: attr(data-xy);
-      position:absolute;
-      left:6px; top:6px;
-      font-size: 10px;
-      color: rgba(148,163,184,0.35);
-      pointer-events:none;
-    }
-
-    .piece{
-      width: calc(var(--cell) - 18px);
-      height: calc(var(--cell) - 18px);
-      border-radius: 10px;
-      box-shadow: 0 6px 14px rgba(0,0,0,0.35);
-      margin-top: 9px;
-    }
-
-    .black{
-      background: radial-gradient(circle at 30% 30%, rgba(40,55,70,1), rgba(6,10,16,1) 70%);
-      border: 1px solid rgba(255,255,255,0.12);
-    }
-    .white{
-      background: #e5e7eb;
-      border: 1px solid rgba(0,0,0,0.10);
-    }
-
-    .selOutline{
-      outline: 3px solid rgba(56,189,248,0.85);
-      outline-offset: -3px;
-    }
-    .grpGlow{
-      box-shadow: 0 0 0 3px rgba(56,189,248,0.35) inset;
-    }
-
-    /* Debug panel */
-    .debugTitle{
-      margin-top: 12px;
-      font-size: 12px;
-      font-weight: 900;
-      color: var(--text);
-      opacity: .9;
-      letter-spacing: .2px;
-    }
-    .debugBox{
-      margin-top: 6px;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.10);
-      background: rgba(0,0,0,0.18);
-      color: rgba(229,231,235,0.90);
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      max-height: 280px;
-      overflow: auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>小雞棋</title>
+<style>
+:root{
+  --cell:56px;
+  --gap:6px;
+  --page-bg:#0f1a14;
+  --panel-bg:rgba(255,255,255,0.04);
+  --board-bg:#768f5d;
+  --text:#e5e7eb;
+  --muted:#94a3b8;
+}
+body{
+  margin:0;padding:18px;
+  background:var(--page-bg);
+  color:var(--text);
+  font-family:ui-sans-serif,system-ui;
+}
+.wrap{display:flex;gap:18px;flex-wrap:wrap}
+.panel{
+  min-width:360px;
+  background:var(--panel-bg);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;
+  padding:14px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(12,var(--cell));
+  grid-template-rows:repeat(12,var(--cell));
+  gap:var(--gap);
+  background:var(--board-bg);
+  padding:var(--gap);
+  border-radius:12px;
+}
+.cell{
+  background:rgba(255,255,255,0.05);
+  border-radius:8px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+}
+.piece{
+  width:calc(var(--cell) - 18px);
+  height:calc(var(--cell) - 18px);
+  margin-top:9px;
+  border-radius:10px;
+}
+.black{background:#111}
+.white{background:#eee}
+.debugBox{
+  margin-top:10px;
+  padding:10px;
+  background:rgba(0,0,0,0.3);
+  max-height:260px;
+  overflow:auto;
+  font-size:12px;
+  white-space:pre-wrap;
+}
+</style>
 </head>
 
 <body>
 <div class="wrap">
-  <div class="board">
-    <div id="grid" class="grid"></div>
-  </div>
-
+  <div class="grid" id="grid"></div>
   <div class="panel">
-    <div class="title">小雞棋v1.1</div>
-
-    <div class="row">
-      <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
-    </div>
-
-    <div class="row">
-      <label style="font-size:12px;color:var(--muted);font-weight:900;">對戰模式</label>
-      <select id="modeSel" title="對戰模式">
-        <option value="hh">雙方人類</option>
-        <option value="ab">AI 執黑</option>
-        <option value="aw">AI 執白</option>
-        <option value="aa">雙方 AI</option>
-      </select>
-      <span class="badge" title="Alpha-Beta 搜索深度">深度：6</span>
-    </div>
-
-    <div class="row">
-      <button id="btnReset">Reset</button>
-    </div>
-
-    <div id="log" class="hint"></div>
-
-    <div class="debugTitle">Debug（不會被刷掉，會一直累積）</div>
+    <select id="modeSel">
+      <option value="hh">雙方人類</option>
+      <option value="aa">雙方 AI</option>
+    </select>
+    <button id="btnReset">Reset</button>
     <div id="debug" class="debugBox"></div>
   </div>
 </div>
 
 <script>
-(() => {
-  const STEP_DELAY = 100;
-  const AI_THINK_DELAY = 150;
+(()=>{
+const W=12,H=12;
+const POINTS_PER_TURN=6;
+const SEARCH_DEPTH=6;
+const WIN=1e9;
 
-  const W = 12;
-  const H = 12;
-  const POINTS_PER_TURN = 6;
-  const SEARCH_DEPTH = 6;
+const board=Array.from({length:W+1},()=>Array(H+1).fill(null));
+const gridEl=document.getElementById("grid");
+const debugEl=document.getElementById("debug");
+let turn='B';
+let aiBlack=false,aiWhite=false;
+let isAnimating=false;
 
-  const INITIAL_PIECES_PER_SIDE = 6;
-  const INF = 1e9;
+function debug(msg){
+  debugEl.textContent+=msg+"\n";
+  debugEl.scrollTop=debugEl.scrollHeight;
+}
 
-  function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function otherOf(c){return c==='B'?'W':'B';}
+function isAI(c){return (c==='B'&&aiBlack)||(c==='W'&&aiWhite);}
 
-  const board = Array.from({length: W+1}, ()=>Array(H+1).fill(null));
+function clearBoard(){
+  for(let x=1;x<=W;x++)
+    for(let y=1;y<=H;y++)
+      board[x][y]=null;
+}
+function placeInitial(){
+  [[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]].forEach(p=>board[p[0]][p[1]]='B');
+  [[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]].forEach(p=>board[p[0]][p[1]]='W');
+}
 
-  const gridEl = document.getElementById('grid');
-  const logEl = document.getElementById('log');
-  const debugEl = document.getElementById('debug');
-  const turnBadgeEl = document.getElementById('turnBadge');
-  const turnTextEl = document.getElementById('turnText');
-  const modeSel = document.getElementById('modeSel');
-
-  let turn='B';
-  let selected=null;
-  let group=null;
-  let isAnimating=false;
-
-  let aiBlack=false;
-  let aiWhite=false;
-
-  // ✅ 用於「雙方都出界」這種極少數狀況的最後行動者（避免錯判/亂判）
-  let lastMover = 'B';
-
-  function dirOf(c){ return c==='B'?1:-1; }
-  function otherOf(c){ return c==='B'?'W':'B'; }
-  function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
-
-  function log(msg){ logEl.textContent = msg || ''; }
-
-  function nowStamp(){
-    const d = new Date();
-    const hh = String(d.getHours()).padStart(2,'0');
-    const mm = String(d.getMinutes()).padStart(2,'0');
-    const ss = String(d.getSeconds()).padStart(2,'0');
-    const ms = String(d.getMilliseconds()).padStart(3,'0');
-    return `${hh}:${mm}:${ss}.${ms}`;
-  }
-  function debug(msg){
-    const line = `[${nowStamp()}] ${msg}`;
-    debugEl.textContent += (debugEl.textContent ? "\n" : "") + line;
-    debugEl.scrollTop = debugEl.scrollHeight;
-
-    const lines = debugEl.textContent.split("\n");
-    if(lines.length > 8000){
-      debugEl.textContent = lines.slice(lines.length - 6000).join("\n");
-    }
-  }
-
-  function deepCopyBoard(src){ return src.map(col => col.slice()); }
-
-  function clearBoard(b = board){
-    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
-  }
-
-  function placeInitial(b = board){
-    const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
-    const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
-    blacks.forEach(([x,y])=>b[x][y]='B');
-    whites.forEach(([x,y])=>b[x][y]='W');
-  }
-
-  function updateTurnUI(){
-    const dot = turnBadgeEl.querySelector('.dot');
-    dot.className = 'dot ' + (turn==='B'?'black':'white');
-    const side = (turn==='B'?'黑棋':'白棋');
-    const aiTag = isAI(turn) ? '（AI）' : '（人類）';
-    turnTextEl.textContent = `現在回合：${side}${aiTag}`;
-  }
-
-  function render(){
-    gridEl.innerHTML='';
-    for(let y=H;y>=1;y--){
-      for(let x=1;x<=W;x++){
-        const d=document.createElement('div');
-        d.className='cell';
-        d.dataset.x=x;
-        d.dataset.y=y;
-        d.setAttribute('data-xy',`${x},${y}`);
-
-        const v=board[x][y];
-        if(v){
-          const p=document.createElement('div');
-          p.className='piece '+(v==='B'?'black':'white');
-          if(group && group.x===x && group.ys.includes(y)) p.classList.add('grpGlow');
-          d.appendChild(p);
-        }
-
-        if(selected && selected.x===x && selected.y===y) d.classList.add('selOutline');
-
-        gridEl.appendChild(d);
-      }
-    }
-    updateTurnUI();
-  }
-
-  // ===== 規則核心 =====
-  function computeGroupOn(b, x,y){
-    const moverColor=b[x][y];
-    if(!moverColor) return null;
-    const ys=[];
-    for(let yy=y;yy<=H;yy++){
-      if(b[x][yy]!==null) ys.push(yy);
-      else break;
-    }
-    return {x,ys,moverColor};
-  }
-  function computeGroup(x,y){ return computeGroupOn(board, x, y); }
-
-  function countAllAboveOn(b, x,y){
-    let c=0;
-    for(let yy=y+1;yy<=H;yy++){
-      if(b[x][yy]===null) break;
-      c++;
-    }
-    return c;
-  }
-  function countAllAbove(x,y){ return countAllAboveOn(board, x, y); }
-
-  function moveUpStepOn(b, g){
-    const top=g.ys[g.ys.length-1];
-    if(top>=H) return false;
-    if(b[g.x][top+1]!==null) return false;
-    for(let i=g.ys.length-1;i>=0;i--){
-      const yy=g.ys[i];
-      b[g.x][yy+1]=b[g.x][yy];
-      b[g.x][yy]=null;
-      g.ys[i]=yy+1;
-    }
-    return true;
-  }
-  function moveUpStep(g){ return moveUpStepOn(board, g); }
-
-  function belowOccupiedOrGroundOn(b, g){
-    const bottom=g.ys[0];
-    if(bottom===1) return true;
-    return b[g.x][bottom-1]!==null;
-  }
-  function belowOccupiedOrGround(g){ return belowOccupiedOrGroundOn(board, g); }
-
-  function canMoveDownOn(b, g){
-    const bottom=g.ys[0];
-    if(bottom===1) return false;
-    return b[g.x][bottom-1]===null;
-  }
-  function canMoveDown(g){ return canMoveDownOn(board, g); }
-
-  function moveDown1On(b, g){
-    for(let i=0;i<g.ys.length;i++){
-      const yy=g.ys[i];
-      b[g.x][yy-1]=b[g.x][yy];
-      b[g.x][yy]=null;
-      g.ys[i]=yy-1;
-    }
-  }
-  function moveDown1(g){ return moveDown1On(board, g); }
-
-  function frontBlockedOn(b, g){
-    const nx = g.x + dirOf(g.moverColor);
-    if(nx<1 || nx>W) return false;
-    for(const yy of g.ys){
-      const fy = yy - 1;
-      if(fy < 1) continue;
-      if(b[nx][fy] !== null) return true;
-    }
-    return false;
-  }
-  function frontBlocked(g){ return frontBlockedOn(board, g); }
-
-  function moveForward1On(b, g){
-    const nx = g.x + dirOf(g.moverColor);
-
-    if(nx < 1 || nx > W){
-      const removed = {B:0, W:0};
-      for(const yy of g.ys){
-        const c = b[g.x][yy];
-        if(c === 'B') removed.B++;
-        if(c === 'W') removed.W++;
-        b[g.x][yy] = null;
-      }
-      g.x = nx;
-      return { borneOff:true, removed, blocked:false, moved:true };
-    }
-
-    for(const yy of g.ys){
-      if(b[nx][yy] !== null){
-        return { borneOff:false, removed:{B:0, W:0}, blocked:true, moved:false };
-      }
-    }
-
-    for(const yy of g.ys) b[nx][yy] = b[g.x][yy];
-    for(const yy of g.ys) b[g.x][yy] = null;
-    g.x = nx;
-
-    return { borneOff:false, removed:{B:0, W:0}, blocked:false, moved:true };
-  }
-  function moveForward1(g){ return moveForward1On(board, g); }
-
-  function playerHasPiecesOn(b, color){
+function render(){
+  gridEl.innerHTML="";
+  for(let y=H;y>=1;y--){
     for(let x=1;x<=W;x++){
-      for(let y=1;y<=H;y++){
-        if(b[x][y] === color) return true;
+      const d=document.createElement("div");
+      d.className="cell";
+      const v=board[x][y];
+      if(v){
+        const p=document.createElement("div");
+        p.className="piece "+(v==='B'?'black':'white');
+        d.appendChild(p);
       }
-    }
-    return false;
-  }
-  function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
-
-  function countPiecesOn(b){
-    let B=0,W=0;
-    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++){
-      if(b[x][y]==='B') B++;
-      else if(b[x][y]==='W') W++;
-    }
-    return {B,W};
-  }
-
-  // ===== 終局判定（✅ 修正：不再用 turn 當 lastMover 亂判）=====
-  function checkGameOver(showAlert = false, moverColor = null){
-    const bHas = playerHasPieces('B');
-    const wHas = playerHasPieces('W');
-
-    // 任一方「己方棋子全部出界」即勝
-    if(!bHas && wHas){
-      if(showAlert) alert('黑棋勝利！');
-      return { over:true, winner:'B' };
-    }
-    if(!wHas && bHas){
-      if(showAlert) alert('白棋勝利！');
-      return { over:true, winner:'W' };
-    }
-
-    // 兩邊都沒有：極少數（混色群組同時出界才會發生）
-    // 以「最後行動者」勝（避免你 log 裡那種 PASS 分支錯判）
-    if(!bHas && !wHas){
-      const w = moverColor || lastMover || 'B';
-      if(showAlert) alert(`${w==='B'?'黑棋':'白棋'}勝利！`);
-      return { over:true, winner:w };
-    }
-
-    return { over:false, winner:null };
-  }
-
-  // ===== 重生/下落 =====
-  async function dropPieceAt(x, y){
-    while(y>1 && board[x][y-1]===null){
-      board[x][y-1] = board[x][y];
-      board[x][y] = null;
-      y = y-1;
-      render();
-      await sleep(STEP_DELAY);
+      gridEl.appendChild(d);
     }
   }
+}
 
-  async function respawnAndDrop(color, count){
-    if(count<=0) return;
-    const spawnX = (color==='B') ? 1 : 12;
-    for(let k=0; k<count; k++){
-      let targetY = H - k;
-      while(targetY >= 1 && board[spawnX][targetY] !== null) targetY--;
-      if(targetY < 1) break;
+function playerHasPieces(color){
+  for(let x=1;x<=W;x++)
+    for(let y=1;y<=H;y++)
+      if(board[x][y]===color) return true;
+  return false;
+}
 
-      board[spawnX][targetY] = color;
-      render();
-      await sleep(STEP_DELAY);
-      await dropPieceAt(spawnX, targetY);
-    }
-  }
-
-  function respawnDropSim(b, color, count){
-    if(count<=0) return;
-    const spawnX = (color==='B') ? 1 : 12;
-
-    for(let k=0; k<count; k++){
-      let y = H - k;
-      while(y >= 1 && b[spawnX][y] !== null) y--;
-      if(y < 1) break;
-
-      b[spawnX][y] = color;
-      while(y > 1 && b[spawnX][y-1] === null){
-        b[spawnX][y-1] = b[spawnX][y];
-        b[spawnX][y] = null;
-        y--;
-      }
-    }
-  }
-
-  // ===== 評值 =====
-  function evaluateBoard(b){
-    let blackOn = 0, whiteOn = 0;
-    let blackScore = 0, whiteScore = 0;
-
-    for(let x=1;x<=W;x++){
-      for(let y=1;y<=H;y++){
-        const v = b[x][y];
-        if(v === 'B'){
-          blackOn++;
-          blackScore += Math.min(14, x + y);
-        } else if(v === 'W'){
-          whiteOn++;
-          const mirroredX = (W + 1) - x;
-          whiteScore += Math.min(14, mirroredX + y);
-        }
-      }
-    }
-
-    const blackOff = INITIAL_PIECES_PER_SIDE - blackOn;
-    const whiteOff = INITIAL_PIECES_PER_SIDE - whiteOn;
-    blackScore += 14 * Math.max(0, blackOff);
-    whiteScore += 14 * Math.max(0, whiteOff);
-
-    return blackScore - whiteScore;
-  }
-
-  // ===== 模擬走子：用「過程是否真的動過」決定 changed =====
-  function simulateMoveFrom(b0, x, y, turnColor){
-    if(b0[x][y] !== turnColor) return { ok:false };
-
-    const b = deepCopyBoard(b0);
-
-    const g = computeGroupOn(b, x, y);
-    if(!g) return { ok:false };
-
-    const above = countAllAboveOn(b, x, y);
-    const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
-
-    let didMove = false;
-
-    for(let i=0;i<moveAmount;i++){
-      if(moveUpStepOn(b, g)) didMove = true;
-      else break;
-    }
-
-    let carriedOut = {B:0, W:0};
-    let safety = 0;
-
-    while(safety++ < 3000){
-      if(frontBlockedOn(b, g)){
-        while(canMoveDownOn(b, g)){
-          moveDown1On(b, g);
-          didMove = true;
-        }
-        break;
-      }
-
-      const res = moveForward1On(b, g);
-      if(res.moved) didMove = true;
-
-      carriedOut.B += res.removed.B;
-      carriedOut.W += res.removed.W;
-
-      if(res.blocked) break;
-      if(res.borneOff) break;
-
-      if(!belowOccupiedOrGroundOn(b, g)){
-        moveDown1On(b, g);
-        didMove = true;
-      }
-
-      if(belowOccupiedOrGroundOn(b, g)) break;
-    }
-
-    // ✅ 終局（勝利方 = 沒有棋子那一方）
-    const bHas = playerHasPiecesOn(b, 'B');
-    const wHas = playerHasPiecesOn(b, 'W');
-    if(!bHas || !wHas){
-      let winner = null;
-      if(!bHas && wHas) winner = 'B';
-      else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒有：以最後行動者勝
-      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed: didMove };
-    }
-
-    const opponent = otherOf(turnColor);
-    const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
-
-    if(carriedOutOpponent > 0){
-      respawnDropSim(b, opponent, carriedOutOpponent);
-      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed: true };
-    }
-
-    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed: didMove };
-  }
-
-  function listLegalMoves(b, turnColor){
-    const moves = [];
-    for(let x=1;x<=W;x++){
-      for(let y=1;y<=H;y++){
-        if(b[x][y] !== turnColor) continue;
-        const sim = simulateMoveFrom(b, x, y, turnColor);
-        if(sim.ok && sim.changed) moves.push({ x, y, sim });
-      }
-    }
-    return moves;
-  }
-
-  // ===== Alpha-Beta（PASS 換手）=====
-  const TT = new Map();
-  function boardKey(b, turnColor, depth){
-    let s = turnColor + '|' + depth + '|';
+function evaluateBoard(b){
+  let s=0;
+  for(let x=1;x<=W;x++)
     for(let y=1;y<=H;y++){
-      for(let x=1;x<=W;x++){
-        const v = b[x][y];
-        s += (v ? v : '.');
-      }
-      s += '/';
+      if(b[x][y]==='B') s+=x+y;
+      if(b[x][y]==='W') s-=(W+1-x)+y;
     }
-    return s;
+  return s;
+}
+
+function deepCopy(b){return b.map(c=>c.slice());}
+
+function listLegalMoves(b,color){
+  const moves=[];
+  for(let x=1;x<=W;x++)
+    for(let y=1;y<=H;y++)
+      if(b[x][y]===color)
+        moves.push({x,y,sim:{b:deepCopy(b),nextTurn:otherOf(color)}});
+  return moves;
+}
+
+function alphabeta(b,turnColor,depth,alpha,beta){
+  const bHas=playerHasPieces('B');
+  const wHas=playerHasPieces('W');
+  if(!bHas&&wHas) return WIN+depth;
+  if(!wHas&&bHas) return -WIN-depth;
+  if(depth===0) return evaluateBoard(b);
+
+  const moves=listLegalMoves(b,turnColor);
+  if(moves.length===0)
+    return alphabeta(b,otherOf(turnColor),depth-1,alpha,beta);
+
+  const isMax=(turnColor==='B');
+  let best=isMax?-Infinity:Infinity;
+
+  for(const m of moves){
+    const v=alphabeta(m.sim.b,m.sim.nextTurn,depth-1,alpha,beta);
+    if(isMax){
+      if(v>best) best=v;
+      alpha=Math.max(alpha,best);
+    }else{
+      if(v<best) best=v;
+      beta=Math.min(beta,best);
+    }
+    if(alpha>=beta) break;
   }
+  return best;
+}
 
-  function alphabeta(b, turnColor, depth, alpha, beta){
-    const blackHas = playerHasPiecesOn(b, 'B');
-    const whiteHas = playerHasPiecesOn(b, 'W');
+function pickBestAIMove(){
+  const moves=listLegalMoves(board,turn);
+  debug("legalMoves="+moves.length);
+  if(moves.length===0) return null;
 
-    // ✅ 黑棋沒棋子 => 黑棋勝（對黑極佳）
-    if(!blackHas && whiteHas) return (INF + depth);
-    // ✅ 白棋沒棋子 => 白棋勝（對黑極差）
-    if(!whiteHas && blackHas) return (-INF - depth);
-    // 兩邊都沒棋子：以「輪到誰走之前的最後行動者」不在模擬中追，視為和局近似 0
-    if(!blackHas && !whiteHas) return 0;
+  const isMax=(turn==='B');
+  let alpha=-Infinity,beta=Infinity;
 
-    if(depth === 0) return evaluateBoard(b);
+  let bestMove=moves[0];
+  let bestVal=alphabeta(bestMove.sim.b,bestMove.sim.nextTurn,SEARCH_DEPTH-1,alpha,beta);
 
-    const key = boardKey(b, turnColor, depth);
-    const hit = TT.get(key);
-    if(hit && hit.alpha <= alpha && hit.beta >= beta) return hit.value;
-
-    const moves = listLegalMoves(b, turnColor);
-
-    if(moves.length === 0){
-      const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
-      TT.set(key, { value: v, alpha, beta });
-      return v;
-    }
-
-    const isMax = (turnColor === 'B');
-
-    for(const m of moves) m.order = evaluateBoard(m.sim.b);
-    moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
-
-    let best = isMax ? -INF : INF;
-
-    for(const m of moves){
-      const v = alphabeta(m.sim.b, m.sim.nextTurn, depth - 1, alpha, beta);
-
-      if(isMax){
-        if(v > best) best = v;
-        if(best > alpha) alpha = best;
-        if(alpha >= beta) break;
-      } else {
-        if(v < best) best = v;
-        if(best < beta) beta = best;
-        if(alpha >= beta) break;
-      }
-    }
-
-    TT.set(key, { value: best, alpha, beta });
-    return best;
+  for(let i=1;i<moves.length;i++){
+    const m=moves[i];
+    const v=alphabeta(m.sim.b,m.sim.nextTurn,SEARCH_DEPTH-1,alpha,beta);
+    if(isMax&&v>bestVal){bestVal=v;bestMove=m;}
+    if(!isMax&&v<bestVal){bestVal=v;bestMove=m;}
   }
+  debug("AI best="+bestVal);
+  return bestMove;
+}
 
-  function pickBestAIMove(){
-    TT.clear();
+async function maybeAIMove(){
+  if(!isAI(turn)) return;
+  if(!playerHasPieces('B')||!playerHasPieces('W')) return;
 
-    const moves = listLegalMoves(board, turn);
-    debug(`pickBestAIMove: turn=${turn} legalMoves=${moves.length}`);
-    if(moves.length === 0) return null;
+  const mv=pickBestAIMove();
+  debug("after pickBestAIMove: "+(mv?mv.x+","+mv.y:"null"));
+  if(!mv){turn=otherOf(turn);return;}
+  turn=otherOf(turn);
+  render();
+  setTimeout(maybeAIMove,50);
+}
 
-    const isMax = (turn === 'B');
-    let bestMove = null;
-    let bestVal = isMax ? -INF : INF;
+document.getElementById("modeSel").onchange=e=>{
+  aiBlack=aiWhite=(e.target.value==='aa');
+  maybeAIMove();
+};
 
-    for(const m of moves) m.order = evaluateBoard(m.sim.b);
-    moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
-
-    let alpha = -INF, beta = INF;
-
-    for(const m of moves){
-      const v = alphabeta(m.sim.b, m.sim.nextTurn, SEARCH_DEPTH - 1, alpha, beta);
-
-      if(isMax){
-        if(v > bestVal){ bestVal = v; bestMove = m; }
-        if(bestVal > alpha) alpha = bestVal;
-      } else {
-        if(v < bestVal){ bestVal = v; bestMove = m; }
-        if(bestVal < beta) beta = bestVal;
-      }
-      if(alpha >= beta) break;
-    }
-
-    if(bestMove){
-      debug(`AI best: (${bestMove.x},${bestMove.y}) score=${bestVal}`);
-      return { x: bestMove.x, y: bestMove.y, score: bestVal };
-    }
-    return null;
-  }
-
-  // ===== 走子（動畫版）：也用 didMove 判斷 PASS =====
-  async function performMove(){
-    if(isAnimating) return;
-    if(!selected||!group) return;
-    if(group.moverColor!==turn) return;
-
-    isAnimating = true;
-
-    // ✅ 記錄最後行動者（供 checkGameOver 在「雙方都出界」時用）
-    lastMover = turn;
-
-    const above=countAllAbove(selected.x,selected.y);
-    const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
-    log(`上方棋子數=${above}，移動量=${moveAmount}`);
-    debug(`performMove: turn=${turn} select=(${selected.x},${selected.y}) above=${above} moveAmount=${moveAmount} groupSize=${group.ys.length}`);
-
-    let didMove = false;
-
-    for(let i=0;i<moveAmount;i++){
-      if(moveUpStep(group)){
-        didMove = true;
-        render();
-        await sleep(STEP_DELAY);
-      } else break;
-    }
-
-    let carriedOut = {B:0, W:0};
-    let safety = 0;
-
-    while(safety++ < 3000){
-      if(frontBlocked(group)){
-        while(canMoveDown(group)){
-          moveDown1(group);
-          didMove = true;
-          render();
-          await sleep(STEP_DELAY);
-        }
-        break;
-      }
-
-      const res = moveForward1(group);
-      if(res.moved) didMove = true;
-
-      carriedOut.B += res.removed.B;
-      carriedOut.W += res.removed.W;
-
-      if(res.blocked){
-        render();
-        await sleep(STEP_DELAY);
-        break;
-      }
-      if(res.borneOff){
-        render();
-        await sleep(STEP_DELAY);
-        break;
-      }
-
-      if(!belowOccupiedOrGround(group)){
-        moveDown1(group);
-        didMove = true;
-      }
-
-      render();
-      await sleep(STEP_DELAY);
-
-      if(belowOccupiedOrGround(group)) break;
-    }
-
-    debug(`performMove end: didMove=${didMove} carriedOut(B=${carriedOut.B},W=${carriedOut.W})`);
-
-    // ✅ 走完立刻判斷終局（用 lastMover，不用 turn 亂傳）
-    const over1 = checkGameOver(false, lastMover);
-    if(over1.over){
-      render();
-      await sleep(80);
-      alert(`${over1.winner==='B'?'黑棋':'白棋'}勝利！`);
-      isAnimating = false;
-      return;
-    }
-
-    const opponent = otherOf(turn);
-    const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
-
-    if(carriedOutOpponent > 0){
-      debug(`carry out opponent: opponent=${opponent} count=${carriedOutOpponent} => respawn and keep turn`);
-      await respawnAndDrop(opponent, carriedOutOpponent);
-
-      const over2 = checkGameOver(false, lastMover);
-      if(over2.over){
-        render();
-        await sleep(80);
-        alert(`${over2.winner==='B'?'黑棋':'白棋'}勝利！`);
-        isAnimating = false;
-        return;
-      }
-
-      selected = null;
-      group = null;
-      render();
-      isAnimating = false;
-      await maybeTriggerAIMove();
-      return;
-    }
-
-    if(!didMove){
-      debug(`PASS: no movement happened => switch turn ${turn} -> ${opponent}`);
-      turn = opponent;
-      selected = null;
-      group = null;
-      render();
-      log('此步無法造成任何移動 → PASS 換對方');
-      isAnimating = false;
-      await maybeTriggerAIMove();
-      return;
-    }
-
-    debug(`switch turn: ${turn} -> ${opponent}`);
-    turn = opponent;
-    selected = null;
-    group = null;
-    render();
-    isAnimating = false;
-
-    await maybeTriggerAIMove();
-  }
-
-  // ===== AI 觸發 =====
-  async function maybeTriggerAIMove(){
-    if(isAnimating) return;
-
-    // ✅ 先檢查終局：不要讓 AI 在終局後繼續 PASS/走子
-    const over0 = checkGameOver(false, lastMover);
-    if(over0.over) return;
-
-    if(!isAI(turn)) return;
-
-    await sleep(AI_THINK_DELAY);
-    if(isAnimating || !isAI(turn)) return;
-
-    const over1 = checkGameOver(false, lastMover);
-    if(over1.over) return;
-
-    log(`AI 思考中（αβ 深度 ${SEARCH_DEPTH}）...`);
-    debug(`AI turn start: turn=${turn}, depth=${SEARCH_DEPTH}`);
-
-    const mv = pickBestAIMove();
-
-    if(!mv){
-      // ✅ PASS 前再確認一次是否其實已經終局
-      const over2 = checkGameOver(false, lastMover);
-      if(over2.over){
-        debug(`GAME OVER detected before PASS. winner=${over2.winner}`);
-        return;
-      }
-
-      const cnt = countPiecesOn(board);
-      debug(`AI PASS (no meaningful moves). boardCount B=${cnt.B} W=${cnt.W}`);
-
-      turn = otherOf(turn);
-      selected = null;
-      group = null;
-      render();
-      log('AI 缺乏有意義棋步 → PASS 換對方');
-      await maybeTriggerAIMove();
-      return;
-    }
-
-    log(`AI 選擇 (${mv.x},${mv.y})，評分=${mv.score}`);
-    selected = {x: mv.x, y: mv.y};
-    group = computeGroup(mv.x, mv.y);
-    render();
-    await sleep(50);
-    await performMove();
-  }
-
-  // ===== 人類點選 =====
-  gridEl.addEventListener('click', async e=>{
-    if(isAnimating) return;
-    if(isAI(turn)) return;
-
-    const cell=e.target.closest('.cell');
-    if(!cell) return;
-
-    const x=Number(cell.dataset.x);
-    const y=Number(cell.dataset.y);
-
-    if(board[x][y]!==turn) return;
-
-    selected={x,y};
-    group=computeGroup(x,y);
-    render();
-    await sleep(50);
-    await performMove();
-  });
-
-  function applyMode(v){
-    aiBlack = (v === 'ab' || v === 'aa');
-    aiWhite = (v === 'aw' || v === 'aa');
-    debug(`mode change: ${v} => aiBlack=${aiBlack} aiWhite=${aiWhite}`);
-    updateTurnUI();
-    render();
-    maybeTriggerAIMove();
-  }
-  modeSel.addEventListener('change', (e)=> applyMode(e.target.value));
-
-  document.getElementById('btnReset').onclick=()=>{
-    clearBoard();
-    placeInitial();
-    turn='B';
-    lastMover='B';
-    selected=null;
-    group=null;
-    isAnimating=false;
-    log('');
-    debug('RESET pressed (debug not cleared)');
-    render();
-    maybeTriggerAIMove();
-  };
-
-  // init
+document.getElementById("btnReset").onclick=()=>{
   clearBoard();
   placeInitial();
-  applyMode(modeSel.value);
+  turn='B';
   render();
-  debug('INIT done');
+  debug("RESET");
+  maybeAIMove();
+};
+
+clearBoard();
+placeInitial();
+render();
 })();
 </script>
 </body>
