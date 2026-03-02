@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>12x6 Backgammon-like Prototype</title>
+  <style>
+    :root{
+      --cell: 56px;
+      --gap: 6px;
+      --board-bg: #0f172a;
+      --cell-bg: #111827;
+      --cell-line: #1f2937;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --warn: #fb7185;
+    }
+    body{
+      margin:0; padding:18px;
+      background: #0b1020;
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+    .wrap{
+      display:flex; gap:18px; flex-wrap:wrap;
+      align-items:flex-start;
+    }
+    .panel{
+      min-width: 320px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 14px 14px 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .panel h1{
+      font-size: 16px; margin:0 0 10px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+    .row{
+      display:flex; gap:10px; flex-wrap:wrap;
+      align-items:center;
+      margin: 8px 0;
+    }
+    button{
+      background: rgba(56,189,248,0.15);
+      border: 1px solid rgba(56,189,248,0.35);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 650;
+      letter-spacing: .2px;
+    }
+    button:hover{ filter: brightness(1.1); }
+    button:active{ transform: translateY(1px); }
+    .hint{
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    .board{
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(12, var(--cell));
+      grid-template-rows: repeat(6, var(--cell));
+      gap: var(--gap);
+      background: var(--board-bg);
+      padding: var(--gap);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      position: relative;
+      user-select: none;
+    }
+    .cell{
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px;
+      position: relative;
+      overflow:hidden;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .cell::after{
+      content: attr(data-xy);
+      position:absolute;
+      left:6px; top:6px;
+      font-size: 10px;
+      color: rgba(148,163,184,0.35);
+      pointer-events:none;
+    }
+
+    .piece{
+      width: calc(var(--cell) - 18px);
+      height: calc(var(--cell) - 18px);
+      border-radius: 10px;
+      box-shadow: 0 10px 18px rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .black{
+      background: radial-gradient(circle at 30% 30%, #334155, #0b1220 70%);
+    }
+    .white{
+      background: radial-gradient(circle at 30% 30%, #ffffff, #cbd5e1 70%);
+      border: 1px solid rgba(0,0,0,0.12);
+    }
+
+    .selOutline{
+      outline: 3px solid rgba(56,189,248,0.85);
+      outline-offset: -3px;
+    }
+    .grpGlow{
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.35) inset, 0 10px 18px rgba(0,0,0,0.35);
+    }
+
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.10);
+      background: rgba(255,255,255,0.04);
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 650;
+    }
+    .dot{
+      width:10px; height:10px; border-radius: 999px;
+      background: #94a3b8;
+      box-shadow: 0 0 0 3px rgba(148,163,184,0.15);
+    }
+    .dot.black{ background:#111827; box-shadow:0 0 0 3px rgba(17,24,39,0.35); }
+    .dot.white{ background:#e2e8f0; box-shadow:0 0 0 3px rgba(226,232,240,0.25); }
+
+    .log{
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      max-height: 220px;
+      overflow:auto;
+      border-top: 1px dashed rgba(255,255,255,0.10);
+      padding-top: 10px;
+    }
+    .warn{
+      color: #fecaca;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="board">
+      <div id="grid" class="grid" aria-label="board"></div>
+    </div>
+
+    <div class="panel">
+      <h1>回合資訊</h1>
+      <div class="row">
+        <span id="turnBadge" class="badge"><span class="dot"></span><span>Turn</span></span>
+        <span id="pointsBadge" class="badge">點數：6</span>
+      </div>
+      <div class="row">
+        <button id="btnMove">Move（執行選定群組）</button>
+        <button id="btnReset">Reset（重開）</button>
+      </div>
+      <div class="hint">
+        規則摘要：<br/>
+        - 棋盤 12×6，座標 (x,y)：x 由左到右 1..12，y 由下到上 1..6。<br/>
+        - 黑棋「前方」為往右（+x），白棋「前方」為往左（-x）。<br/>
+        - 每回合點數=6。選一顆己棋，用完點數。<br/>
+        - 移動量 = ⌊ 6 / (同欄上方己棋數 + 1) ⌋。選定棋子會帶著同欄上方己棋形成群組一起移動。<br/>
+        - 先嘗試群組往上移動「移動量」格（遇到頂或被擋就停）。接著反覆：<br/>
+        &nbsp;&nbsp;前方有棋子 → 群組往下直到下方有棋子或 y=1<br/>
+        &nbsp;&nbsp;前方無棋子 → 群組往前 1 格，檢查支撐：<br/>
+        &nbsp;&nbsp;&nbsp;&nbsp;若下方無棋子且 y&gt;1 → 往下 1 格，回到「檢查前方」<br/>
+        &nbsp;&nbsp;&nbsp;&nbsp;若下方有棋子或 y=1 → 停止並換手<br/>
+        - 往前走出棋盤（黑 x&gt;12 / 白 x&lt;1）即移出棋盤；己方全出界即勝。
+      </div>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const W = 12, H = 6;
+  const POINTS_PER_TURN = 6;
+
+  // board[x][y] (1-indexed) -> 'B' | 'W' | null
+  const board = Array.from({length: W+1}, () => Array(H+1).fill(null));
+
+  const gridEl = document.getElementById('grid');
+  const logEl = document.getElementById('log');
+  const turnBadgeEl = document.getElementById('turnBadge');
+  const pointsBadgeEl = document.getElementById('pointsBadge');
+  const btnMove = document.getElementById('btnMove');
+  const btnReset = document.getElementById('btnReset');
+
+  let turn = 'B'; // 'B' black, 'W' white
+  let selected = null; // {x,y}
+  let group = null; // {x, ys: [bottom..top], color}
+  let points = POINTS_PER_TURN;
+
+  function dirOf(color){ return color === 'B' ? +1 : -1; }
+  function inBounds(x,y){ return x>=1 && x<=W && y>=1 && y<=H; }
+  function cell(x,y){ return board[x][y]; }
+
+  function clearBoard(){
+    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) board[x][y]=null;
+  }
+
+  function placeInitial(){
+    // Black (left)
+    const blacks = [
+      [1,1],[1,2],[1,3],
+      [2,1],[2,2],
+      [3,1],
+    ];
+    // White (right)
+    const whites = [
+      [12,1],[12,2],[12,3],
+      [11,1],[11,2],
+      [10,1],
+    ];
+    blacks.forEach(([x,y]) => board[x][y]='B');
+    whites.forEach(([x,y]) => board[x][y]='W');
+  }
+
+  function log(msg, warn=false){
+    const line = warn ? `⚠️ ${msg}` : msg;
+    logEl.textContent = (line + "\n" + logEl.textContent).slice(0, 4000);
+  }
+
+  function render(){
+    gridEl.innerHTML = '';
+    // display rows from top (y=6) to bottom (y=1)
+    for(let y=H; y>=1; y--){
+      for(let x=1; x<=W; x++){
+        const d = document.createElement('div');
+        d.className = 'cell';
+        d.dataset.x = x;
+        d.dataset.y = y;
+        d.setAttribute('data-xy', `${x},${y}`);
+
+        const v = board[x][y];
+        if(v){
+          const p = document.createElement('div');
+          p.className = `piece ${v==='B'?'black':'white'}`;
+          d.appendChild(p);
+
+          // highlight selected + group
+          if(selected && selected.x===x && selected.y===y){
+            d.classList.add('selOutline');
+          }
+          if(group && group.x===x && group.ys.includes(y) && group.color===v){
+            p.classList.add('grpGlow');
+          }
+        }
+        gridEl.appendChild(d);
+      }
+    }
+
+    // badges
+    const dot = turnBadgeEl.querySelector('.dot');
+    dot.className = 'dot ' + (turn==='B' ? 'black' : 'white');
+    turnBadgeEl.lastChild.textContent = `輪到：${turn==='B'?'黑棋（前方→右）':'白棋（前方→左）'}`;
+    pointsBadgeEl.textContent = `點數：${points}`;
+  }
+
+  function resetGame(){
+    clearBoard();
+    placeInitial();
+    turn = 'B';
+    points = POINTS_PER_TURN;
+    selected = null;
+    group = null;
+    logEl.textContent = '';
+    log('遊戲開始：黑棋先手。');
+    render();
+  }
+
+  // Group = selected piece + all friendly pieces above it in same column (contiguous because gravity-like play)
+  function computeGroup(x,y){
+    const color = board[x][y];
+    if(!color) return null;
+
+    // count friendly above (same x, y+1..H)
+    const ys = [];
+    // bottom is selected y
+    for(let yy=y; yy<=H; yy++){
+      if(board[x][yy] === color) ys.push(yy);
+      else break; // stop at first non-friendly/empty; we treat only contiguous friendly stack
+    }
+    // ensure selected is bottom of that segment
+    if(ys[0] !== y) return null;
+    return { x, ys, color };
+  }
+
+  function countFriendlyAboveInColumn(x,y,color){
+    let count = 0;
+    for(let yy=y+1; yy<=H; yy++){
+      if(board[x][yy] === color) count++;
+      else break;
+    }
+    return count;
+  }
+
+  function moveUpStep(g){
+    const x = g.x;
+    const top = g.ys[g.ys.length-1];
+    if(top >= H) return false;
+    if(board[x][top+1] !== null) return false; // blocked above by any piece
+    // shift up by 1
+    for(let i=g.ys.length-1; i>=0; i--){
+      const yy = g.ys[i];
+      board[x][yy+1] = board[x][yy];
+      board[x][yy] = null;
+      g.ys[i] = yy+1;
+    }
+    return true;
+  }
+
+  function belowOccupiedOrGround(g){
+    const x = g.x;
+    const bottom = g.ys[0];
+    if(bottom === 1) return true;
+    return board[x][bottom-1] !== null;
+  }
+
+  function canMoveDown(g){
+    const x = g.x;
+    const bottom = g.ys[0];
+    if(bottom === 1) return false;
+    return board[x][bottom-1] === null;
+  }
+
+  function moveDown1(g){
+    const x = g.x;
+    const bottom = g.ys[0];
+    if(bottom === 1) return false;
+    if(board[x][bottom-1] !== null) return false;
+    // shift down by 1
+    for(let i=0; i<g.ys.length; i++){
+      const yy = g.ys[i];
+      board[x][yy-1] = board[x][yy];
+      board[x][yy] = null;
+      g.ys[i] = yy-1;
+    }
+    return true;
+  }
+
+  function frontBlocked(g){
+    const x = g.x;
+    const d = dirOf(g.color);
+    const nx = x + d;
+    // if next x is out of board, it's NOT blocked (it means you can bear off)
+    if(nx < 1 || nx > W) return false;
+    // blocked if any cell at (nx, y) for y in group is occupied
+    for(const yy of g.ys){
+      if(board[nx][yy] !== null) return true;
+    }
+    return false;
+  }
+
+  function moveForward1(g){
+    const x = g.x;
+    const d = dirOf(g.color);
+    const nx = x + d;
+
+    // bearing off
+    if(nx < 1 || nx > W){
+      for(const yy of g.ys){
+        board[x][yy] = null;
+      }
+      g.x = nx; // off-board marker
+      return { borneOff: true };
+    }
+
+    // ensure destination empty for all ys
+    for(const yy of g.ys){
+      if(board[nx][yy] !== null) return { borneOff:false, blocked:true };
+    }
+
+    // move
+    for(const yy of g.ys){
+      board[nx][yy] = board[x][yy];
+      board[x][yy] = null;
+    }
+    g.x = nx;
+    return { borneOff:false, blocked:false };
+  }
+
+  function playerHasPieces(color){
+    for(let x=1;x<=W;x++){
+      for(let y=1;y<=H;y++){
+        if(board[x][y] === color) return true;
+      }
+    }
+    return false;
+  }
+
+  function endTurn(){
+    selected = null;
+    group = null;
+    points = POINTS_PER_TURN;
+    turn = (turn === 'B') ? 'W' : 'B';
+  }
+
+  function performMove(){
+    if(!selected || !group){
+      log('請先點選一顆己方棋子。', true);
+      return;
+    }
+    if(group.color !== turn){
+      log('只能移動輪到的那一方。', true);
+      return;
+    }
+
+    const x = selected.x, y = selected.y;
+    const above = countFriendlyAboveInColumn(x,y,turn);
+    const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
+
+    // NOTE: moveAmount could become 0 if (above+1) > 6
+    if(moveAmount <= 0){
+      log(`此群組移動量為 0（上方己棋數=${above}），無法移動。`, true);
+      // still counts as a turn? spec says "使用全部的移動點數" but if 0 then no movement.
+      // We'll treat as "no-op still ends turn" to avoid deadlock.
+      endTurn();
+      render();
+      return;
+    }
+
+    log(`移動：${turn==='B'?'黑':'白'} 選定 (${x},${y})，群組高度=${group.ys.length}，上方己棋數=${above}，移動量=${moveAmount}`);
+
+    // 1) move up by moveAmount, step-by-step until blocked/top
+    let upSteps = 0;
+    for(let i=0;i<moveAmount;i++){
+      if(moveUpStep(group)) upSteps++;
+      else break;
+    }
+    if(upSteps>0) log(`先往上移動 ${upSteps} 格。`);
+    else log(`往上移動被擋或到頂（0 格）。`);
+
+    // 2) repeat rules
+    let safety = 0;
+    while(safety++ < 2000){
+      if(frontBlocked(group)){
+        // "前方有其他棋子" => move down until below occupied or y==1
+        if(canMoveDown(group)){
+          moveDown1(group);
+          continue;
+        } else {
+          // cannot move down => stop
+          break;
+        }
+      } else {
+        // "前方無其他棋子" => move forward 1, then check support
+        const res = moveForward1(group);
+        if(res.blocked){
+          // should not happen if frontBlocked() was false, but keep safe
+          log('偵測到前方移動被擋（保護機制）。', true);
+          break;
+        }
+        if(res.borneOff){
+          log(`群組往前出界 → 移出棋盤。`);
+          break;
+        }
+        // after moving forward: check below support
+        if(!belowOccupiedOrGround(group)){
+          // "下方無其他棋子或是高度為1" => (here means no support and not at y=1) => move down 1 then re-check front
+          moveDown1(group);
+          continue;
+        } else {
+          // supported or at ground => stop
+          break;
+        }
+      }
+    }
+    if(safety >= 2000){
+      log('移動迴圈達到安全上限，已強制停止（避免無窮迴圈）。', true);
+    }
+
+    // win check (current player after move)
+    if(!playerHasPieces(turn)){
+      render();
+      alert(`${turn==='B'?'黑棋':'白棋'}勝利！己方棋子已全部移出前方棋盤外。`);
+      return;
+    }
+
+    // end turn
+    endTurn();
+    render();
+  }
+
+  // click handling
+  gridEl.addEventListener('click', (e) => {
+    const cellEl = e.target.closest('.cell');
+    if(!cellEl) return;
+    const x = Number(cellEl.dataset.x);
+    const y = Number(cellEl.dataset.y);
+
+    const v = board[x][y];
+    if(!v){
+      // clicking empty cell clears selection
+      selected = null;
+      group = null;
+      render();
+      return;
+    }
+
+    if(v !== turn){
+      log('不是你的棋子。', true);
+      return;
+    }
+
+    // if clicking same selected cell, treat as "confirm move"
+    if(selected && selected.x === x && selected.y === y){
+      performMove();
+      return;
+    }
+
+    // select
+    selected = {x,y};
+    group = computeGroup(x,y);
+    if(!group){
+      log('無法形成群組（可能因為不連續堆疊）。', true);
+      selected = null;
+      group = null;
+    } else {
+      const above = countFriendlyAboveInColumn(x,y,turn);
+      const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
+      log(`已選定 (${x},${y})，群組大小=${group.ys.length}，預計移動量=${moveAmount}`);
+    }
+    render();
+  });
+
+  btnMove.addEventListener('click', performMove);
+  btnReset.addEventListener('click', resetGame);
+
+  // init
+  resetGame();
+})();
+</script>
+</body>
+</html>
