@@ -455,58 +455,48 @@
       }
     }
   
-    // ===== 2️⃣ 反覆：前方檢查 -> (前 或 下) 交替形成斜向移動 =====
+    // ===== 2️⃣ 反覆：形成斜前下移動，觸地即停止 =====
     let safety = 0;
     while (safety++ < 2000) {
-  
-      // A) 前方有其他棋子：垂直向下移動直到下方有棋子或 y=1
+    
+      // A) 前方有其他棋子 → 垂直向下直到有支撐或到地面
       if (frontBlocked(group)) {
-        let moved = false;
         while (canMoveDown(group)) {
           moveDown1(group);
-          moved = true;
           render();
           await sleep(STEP_DELAY);
         }
-        // 依照你的描述，這個分支做完「落到底/有支撐」後，
-        // 下一次檢查仍然會是前方有棋子，且已不能再往下，
-        // 會進入無限迴圈；因此此處合理地停止並換手。
-        // （等同：前方被擋、也無法再下沉 → 本回合結束）
+        // 下沉完後立即停止（不再前移）
         break;
       }
-  
-      // B) 前方無其他棋子：向前移動 1 格
+    
+      // B) 前方無棋子 → 向前 1 格
       const res = moveForward1(group);
       render();
       await sleep(STEP_DELAY);
-  
-      // 出界（bearing off）
+    
       if (res.borneOff) {
         log('群組出界！');
         break;
       }
-  
-      // C) 檢查下方：若「下方無棋子」且 y>1，則向下移動 1 格，然後回到迴圈檢查前方
-      //    若「下方有棋子」或 y=1，則停止並換手
+    
+      // C) 檢查下方
       if (!belowOccupiedOrGround(group)) {
-        // 下方無支撐且不在地面，向下 1 格（只下 1 格！形成前/下交替）
-        if (canMoveDown(group)) {
-          moveDown1(group);
-          render();
-          await sleep(STEP_DELAY);
-          continue; // 回去檢查「前方有無其他棋子」
-        } else {
-          // 理論上不會發生（保護）
-          break;
-        }
+        // 無支撐 → 下 1 格（只下一格，形成交替）
+        moveDown1(group);
+        render();
+        await sleep(STEP_DELAY);
+    
+        // 下完後回到迴圈檢查前方（形成前→下→前→下）
+        continue;
       } else {
-        // 下方有支撐或在 y=1：停止移動
+        // ⚠️ 有支撐或到地面 → 立即停止，不再前移
         break;
       }
     }
-  
+    
     if (safety >= 2000) {
-      log('移動迴圈達到安全上限，已強制停止（避免無窮迴圈）。', true);
+      log('移動迴圈安全停止。', true);
     }
   
     // ===== 勝利檢查 =====
