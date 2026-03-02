@@ -198,7 +198,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v2.6</div>
+    <div class="title">小雞棋v2.7</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -232,7 +232,7 @@
   </div>
 </div>
 
-  <script>
+<script>
 (() => {
   const STEP_DELAY = 100;
   const AI_THINK_DELAY = 150;
@@ -246,7 +246,7 @@
   const INITIAL_PIECES_PER_SIDE = 6;
   const WIN = 1e9;
 
-  // ✅ 規則：連續第 N 次 NOOP（含 PASS）=> 和局（分數強制=0）
+  // ✅ 規則：連續第 N 次「淨變化為 NOOP」（含 PASS）=> 和局（分數強制=0）
   const DRAW_NOOP_N = 5;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
@@ -372,7 +372,7 @@
     noopStreak++;
     log(`NOOP累積：${noopStreak}/${DRAW_NOOP_N}`);
     if(noopStreak >= DRAW_NOOP_N){
-      appendMoveLine(`== 和局：連續 NOOP 達 ${DRAW_NOOP_N} 次 ==`);
+      appendMoveLine(`== 和局：連續 NOOP（淨變化=0）達 ${DRAW_NOOP_N} 次 ==`);
       if(showAlert) alert('和局！');
       return { over:true, draw:true };
     }
@@ -583,7 +583,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子（帶 lastMover；changed 用於判斷 NOOP）=====
+  // ===== 模擬走子（帶 lastMover；changed=淨變化）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -629,7 +629,6 @@
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
 
-    // 終局
     if(!bHas || !wHas){
       let winner = null;
       if(!bHas && wHas) winner = 'B';
@@ -701,14 +700,13 @@
   }
 
   function alphabeta(b, turnColor, depth, alpha, beta, lastMoverAB, noopStreakAB){
-    // ✅ 特殊規則：第 N 次 NOOP => 和局（強制 0）
     if(noopStreakAB >= DRAW_NOOP_N) return 0;
 
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    if(!blackHas && whiteHas) return (WIN + depth);      // 黑勝
-    if(!whiteHas && blackHas) return (-WIN - depth);     // 白勝
+    if(!blackHas && whiteHas) return (WIN + depth);
+    if(!whiteHas && blackHas) return (-WIN - depth);
 
     if(!blackHas && !whiteHas){
       return (lastMoverAB === 'B') ? (WIN + depth) : (-WIN - depth);
@@ -729,7 +727,7 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // PASS：沒得走就換手（消耗深度；PASS 也算 NOOP）
+    // PASS：沒得走（算 NOOP）
     if(moves.length === 0){
       const v = alphabeta(
         b,
@@ -737,8 +735,8 @@
         depth - 1,
         alpha,
         beta,
-        turnColor,                // lastMoverAB 更新
-        noopStreakAB + 1          // ✅ PASS 視為 NOOP
+        turnColor,
+        noopStreakAB + 1
       );
       TT.set(key, { value: v, flag: 'EXACT' });
       return v;
@@ -752,7 +750,6 @@
     let best = isMax ? -Infinity : Infinity;
 
     for(const m of moves){
-      // ✅ NOOP streak 轉移：changed=false => +1，否則歸零
       const nextNoop = m.sim.changed ? 0 : (noopStreakAB + 1);
 
       const v = alphabeta(
@@ -849,18 +846,18 @@
 
     isAnimating = true;
 
-    // 此回合行動者（即使 PASS）
+    // ✅ 用盤面淨變化判 NOOP（與 simulateMoveFrom / AI 搜尋一致）
+    const beforeKey = posKey(board);
+
     lastMover = turn;
 
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
     log(`上方棋子數=${above}，移動量=${moveAmount}`);
 
-    let didMove = false;
-
+    // 動畫用：不再用 didMove 來判 NOOP
     for(let i=0;i<moveAmount;i++){
       if(moveUpStep(group)){
-        didMove = true;
         render();
         await sleep(STEP_DELAY);
       } else break;
@@ -873,7 +870,6 @@
       if(frontBlocked(group)){
         while(canMoveDown(group)){
           moveDown1(group);
-          didMove = true;
           render();
           await sleep(STEP_DELAY);
         }
@@ -881,7 +877,6 @@
       }
 
       const res = moveForward1(group);
-      if(res.moved) didMove = true;
 
       carriedOut.B += res.removed.B;
       carriedOut.W += res.removed.W;
@@ -899,7 +894,6 @@
 
       if(!belowOccupiedOrGround(group)){
         moveDown1(group);
-        didMove = true;
       }
 
       render();
@@ -907,6 +901,9 @@
 
       if(belowOccupiedOrGround(group)) break;
     }
+
+    const afterKey = posKey(board);
+    const netChanged = (afterKey !== beforeKey);
 
     // 先判斷終局
     const over1 = checkGameOver(false, lastMover);
@@ -922,11 +919,11 @@
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
     // 棋譜：記錄這手（含 PASS）
-    if(didMove) appendMoveLine(`${turn==='B'?'黑':'白'}: (${selected.x},${selected.y})`);
-    else       appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
+    if(netChanged) appendMoveLine(`${turn==='B'?'黑':'白'}: (${selected.x},${selected.y})`);
+    else          appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
 
-    // ✅ NOOP streak（真實對局）
-    if(!didMove){
+    // ✅ NOOP streak（真實對局：以淨變化判定）
+    if(!netChanged){
       const dr = bumpNoopStreakAndCheckDraw(true);
       if(dr.over){
         isAnimating = false;
@@ -956,12 +953,12 @@
       return;
     }
 
-    if(!didMove){
+    if(!netChanged){
       turn = opponent;
       selected = null;
       group = null;
       render();
-      log('此步無法造成任何移動 → PASS 換對方');
+      log('此步無法造成任何淨變化 → PASS 換對方');
       isAnimating = false;
       await maybeTriggerAIMove();
       return;
@@ -983,7 +980,6 @@
     const over0 = checkGameOver(false, lastMover);
     if(over0.over) return;
 
-    // ✅ 若已達 NOOP 和局門檻，直接停（保險）
     if(noopStreak >= DRAW_NOOP_N) return;
 
     if(!isAI(turn)) return;
@@ -1001,7 +997,7 @@
     const mv = pickBestAIMove();
 
     if(!mv){
-      // 沒棋可走 => PASS（也算 NOOP）
+      // 沒棋可走 => PASS（淨變化=0 => NOOP）
       appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
       lastMover = turn;
 
@@ -1076,9 +1072,7 @@
     group=null;
     isAnimating=false;
     log('');
-
     resetNoopStreak();
-
     render();
     maybeTriggerAIMove();
   };
