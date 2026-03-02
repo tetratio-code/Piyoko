@@ -167,7 +167,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v1.5</div>
+    <div class="title">小雞棋v1.6</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -400,7 +400,7 @@
   }
   function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
 
-  // ===== 終局判定（保留你原本的邏輯）=====
+  // ===== 終局判定 =====
   function checkGameOver(lastMoverColor = null, showAlert = false){
     const bHas = playerHasPieces('B');
     const wHas = playerHasPieces('W');
@@ -492,8 +492,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子 + 列合法手 =====
-  // ✅ 回傳 changed：走完後盤面有沒有改變（否則視為「無意義步」）
+  // ===== 模擬走子：changed 修正（盤面變化 OR 有帶出對手）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -533,7 +532,6 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
-    // 終局（盤面角度）：winner 由盤面決定（雙方皆空視為 turnColor）
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
     if(!bHas || !wHas){
@@ -552,14 +550,15 @@
     if(carriedOutOpponent > 0){
       respawnDropSim(b, opponent, carriedOutOpponent);
       const afterKey = boardKeyFast(b);
-      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed: (afterKey !== beforeKey) };
+      const changed = (afterKey !== beforeKey) || (carriedOutOpponent > 0); // ✅ 修正
+      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed };
     }
 
     const afterKey = boardKeyFast(b);
-    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed: (afterKey !== beforeKey) };
+    const changed = (afterKey !== beforeKey);
+    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed };
   }
 
-  // ✅ 只列「有意義步」：changed===true
   function listLegalMoves(b, turnColor){
     const moves = [];
     for(let x=1;x<=W;x++){
@@ -572,7 +571,7 @@
     return moves;
   }
 
-  // ===== Alpha-Beta =====
+  // ===== Alpha-Beta（PASS 換手）=====
   const TT = new Map();
   function boardKey(b, turnColor, depth){
     let s = turnColor + '|' + depth + '|';
@@ -589,8 +588,8 @@
   function alphabeta(b, turnColor, depth, alpha, beta){
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
-    if(!blackHas) return (INF + depth);     // 黑勝：越快越好
-    if(!whiteHas) return (-INF - depth);    // 白勝：對黑越糟，且越快輸越糟
+    if(!blackHas) return (INF + depth);
+    if(!whiteHas) return (-INF - depth);
 
     if(depth === 0) return evaluateBoard(b);
 
@@ -600,7 +599,6 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // ✅ PASS：沒有「有意義步」=> 直接換對方（消耗 1 ply）
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
       TT.set(key, { value: v, alpha, beta });
@@ -663,7 +661,7 @@
     return bestMove ? { x: bestMove.x, y: bestMove.y, score: bestVal } : null;
   }
 
-  // ===== 走子（動畫版） =====
+  // ===== 走子（動畫版）：PASS 判斷也修正 =====
   async function performMove(){
     if(isAnimating) return;
     if(!selected||!group) return;
@@ -671,8 +669,7 @@
 
     isAnimating = true;
 
-    const before = deepCopyBoard(board);
-    const beforeKey = boardKeyFast(before);
+    const beforeKey = boardKeyFast(board);
 
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
@@ -723,7 +720,6 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    // ✅ 行動後終局檢查
     const over1 = checkGameOver(turn, false);
     if(over1.over){
       render();
@@ -748,7 +744,7 @@
         return;
       }
 
-      // 回合不換
+      // 依規則：帶出對方 -> 回合不換（即使盤面最後長得一樣也不能 PASS）
       selected = null;
       group = null;
       render();
@@ -757,7 +753,7 @@
       return;
     }
 
-    // ✅ 若盤面完全沒變 => 視為 PASS，直接換手
+    // ✅ 只有「盤面沒變」且「沒有帶出對方」才 PASS
     const afterKey = boardKeyFast(board);
     if(afterKey === beforeKey){
       turn = opponent;
@@ -780,7 +776,7 @@
     await maybeTriggerAIMove();
   }
 
-  // ===== AI 觸發 =====
+  // ===== AI 觸發（PASS 換手，雙方AI可連續）=====
   async function maybeTriggerAIMove(){
     if(isAnimating) return;
 
@@ -800,7 +796,6 @@
 
     const mv = pickBestAIMove();
 
-    // ✅ AI 沒「有意義步」=> PASS 換手，並可連續觸發（雙方AI）
     if(!mv){
       turn = otherOf(turn);
       selected = null;
@@ -819,7 +814,7 @@
     await performMove();
   }
 
-  // ===== 人類點選（若輪到 AI 則忽略） =====
+  // ===== 人類點選 =====
   gridEl.addEventListener('click', async e=>{
     if(isAnimating) return;
     if(isAI(turn)) return;
