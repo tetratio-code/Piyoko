@@ -198,7 +198,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v2.2</div>
+    <div class="title">小雞棋v2.2a</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -288,8 +288,8 @@
   function fmtScore(v){
     if(v === Infinity) return "Inf";
     if(v === -Infinity) return "-Inf";
-    if(v >  9e8) return `WIN(+${Math.round(v - WIN)})`;   // WIN+depth
-    if(v < -9e8) return `LOSE(${Math.round(v + WIN)})`;   // -WIN-depth
+    if(v >=  9e8) return `WIN(B)+${Math.round(v - WIN)}`;   // 黑必勝
+    if(v <= -9e8) return `WIN(W)${Math.round(v + WIN)}`;    // 白必勝（v 是負）
     return String(Math.round(v));
   }
 
@@ -328,6 +328,19 @@
   }
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
+
+  // ✅ 盤面 key（不含 depth），用於判斷「淨變化」與避免 NOOP 走法被當合法
+  function posKey(b){
+    let s = '';
+    for(let y=1;y<=H;y++){
+      for(let x=1;x<=W;x++){
+        const v = b[x][y];
+        s += (v ? v : '.');
+      }
+      s += '/';
+    }
+    return s;
+  }
 
   function clearBoard(b = board){
     for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
@@ -550,9 +563,11 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子 =====
+  // ===== 模擬走子（✅ changed 改為「盤面淨變化」）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
+
+    const beforeKey = posKey(b0);
 
     const b = deepCopyBoard(b0);
     const g = computeGroupOn(b, x, y);
@@ -561,11 +576,8 @@
     const above = countAllAboveOn(b, x, y);
     const moveAmount = Math.floor(POINTS_PER_TURN / (above + 1));
 
-    let didMove = false;
-
     for(let i=0;i<moveAmount;i++){
-      if(moveUpStepOn(b, g)) didMove = true;
-      else break;
+      if(!moveUpStepOn(b, g)) break;
     }
 
     let carriedOut = {B:0, W:0};
@@ -575,13 +587,11 @@
       if(frontBlockedOn(b, g)){
         while(canMoveDownOn(b, g)){
           moveDown1On(b, g);
-          didMove = true;
         }
         break;
       }
 
       const res = moveForward1On(b, g);
-      if(res.moved) didMove = true;
 
       carriedOut.B += res.removed.B;
       carriedOut.W += res.removed.W;
@@ -591,7 +601,6 @@
 
       if(!belowOccupiedOrGroundOn(b, g)){
         moveDown1On(b, g);
-        didMove = true;
       }
 
       if(belowOccupiedOrGroundOn(b, g)) break;
@@ -599,12 +608,16 @@
 
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
+
+    // 終局
     if(!bHas || !wHas){
       let winner = null;
       if(!bHas && wHas) winner = 'B';
       else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒棋子：以最後行動者勝（你現在的規則）
-      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed: didMove };
+      else winner = turnColor; // 兩邊都沒棋子：以最後行動者勝（你目前規則）
+
+      const changed = (posKey(b) !== beforeKey);
+      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed };
     }
 
     const opponent = otherOf(turnColor);
@@ -612,10 +625,12 @@
 
     if(carriedOutOpponent > 0){
       respawnDropSim(b, opponent, carriedOutOpponent);
-      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed: true };
+      const changed = (posKey(b) !== beforeKey);
+      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed };
     }
 
-    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed: didMove };
+    const changed = (posKey(b) !== beforeKey);
+    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed };
   }
 
   function listLegalMoves(b, turnColor){
@@ -649,14 +664,18 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    // 終局（以「自己棋子全出界即勝」的規則：黑沒棋=黑勝 => 對黑正分）
+    // 終局（黑沒棋=黑勝 => 對黑正分）
     if(!blackHas && whiteHas) return (WIN + depth);      // 黑勝
     if(!whiteHas && blackHas) return (-WIN - depth);     // 白勝
-    
+
+    // ✅ 兩邊都沒棋：用「最後行動者」判勝負（此處無 lastMover，只能用 turnColor 推）
+    // 你的 simulateMoveFrom 目前回傳 nextTurn = turnColor（不換手）表示「最後行動者」就是 turnColor
+    // 所以在 alphabeta 的狀態下，「輪到 turnColor」代表上一手也可能是 turnColor 或對手；此規則本身不完美。
+    // 但至少不要回 0，回一個確定的勝負分以避免誤導。
     if(!blackHas && !whiteHas){
-      const winner = otherOf(turnColor); // 最後行動者
-      if(winner === 'B') return (WIN + depth);
-      else               return (-WIN - depth);
+      // 保守：視為「上一手行動者 = otherOf(turnColor)」勝
+      const winner = otherOf(turnColor);
+      return (winner === 'B') ? (WIN + depth) : (-WIN - depth);
     }
 
     if(depth === 0) return evaluateBoard(b);
@@ -665,15 +684,10 @@
     const key = boardKey(b, turnColor, depth);
     const hit = TT.get(key);
 
-    // Probe
     if(hit){
-      if(hit.flag === 'EXACT'){
-        return hit.value;
-      } else if(hit.flag === 'LOWER'){ // value 是下界
-        alpha = Math.max(alpha, hit.value);
-      } else if(hit.flag === 'UPPER'){ // value 是上界
-        beta = Math.min(beta, hit.value);
-      }
+      if(hit.flag === 'EXACT') return hit.value;
+      if(hit.flag === 'LOWER') alpha = Math.max(alpha, hit.value);
+      if(hit.flag === 'UPPER') beta  = Math.min(beta, hit.value);
       if(alpha >= beta) return hit.value;
     }
 
@@ -682,14 +696,12 @@
     // PASS：沒得走就換手（消耗深度）
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
-      // PASS 的節點也可以存 EXACT
       TT.set(key, { value: v, flag: 'EXACT' });
       return v;
     }
 
     const isMax = (turnColor === 'B');
 
-    // ordering（可留可不留）
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
@@ -709,7 +721,6 @@
       }
     }
 
-    // Store：用原始窗格 alpha0/beta0 決定旗標
     let flag = 'EXACT';
     if(best <= alpha0) flag = 'UPPER';
     else if(best >= beta0) flag = 'LOWER';
@@ -718,22 +729,24 @@
     return best;
   }
 
-  // ✅ 強制輸出：列出「每個可能棋步」的 minimax 值（depth=SEARCH_DEPTH）
+  // ✅ 強制輸出：列出每個可能棋步的 minimax 值
   function logAllMoveScores(scoredMoves, chosen){
     const side = (turn === 'B') ? '黑' : '白';
     appendMoveLine(`== AI分析 ${side}回合 depth=${SEARCH_DEPTH} 候選=${scoredMoves.length} ==`);
     for(const m of scoredMoves){
       const tag = (chosen && m.x===chosen.x && m.y===chosen.y) ? '  <=CHOSEN' : '';
+      const chg = m.changed ? 'chg' : 'NOOP';
+      const w   = m.winner ? ` winner=${m.winner}` : '';
+      const co  = m.carry ? ` carry=${m.carry}` : '';
       appendMoveLine(
-        `  (${m.x},${m.y})  immediate=${fmtScore(m.immediate)}  minimax=${fmtScore(m.v)}${tag}`
+        `  (${m.x},${m.y}) ${chg} immediate=${fmtScore(m.immediate)} minimax=${fmtScore(m.v)}${w}${co}${tag}`
       );
     }
     appendMoveLine(`== end ==`);
   }
 
   function pickBestAIMove(){
-    // 注意：為了「每步都能拿到可比較的真值」，我們對每個候選都用 full window (-Inf, +Inf) 計算一次
-    // （alpha-beta 仍會在內層剪枝，但 root 不共享 alpha/beta，避免拿到 bound 值）
+    // root：每個候選都用 full window 求「可比較的值」
     TT.clear();
 
     const moves = listLegalMoves(board, turn);
@@ -744,21 +757,22 @@
     const scored = [];
     for(const m of moves){
       const immediate = evaluateBoard(m.sim.b);
-
-      // full window for exact value
       const v = alphabeta(m.sim.b, m.sim.nextTurn, SEARCH_DEPTH - 1, -Infinity, Infinity);
 
-      scored.push({ x:m.x, y:m.y, immediate, v });
+      scored.push({
+        x: m.x, y: m.y,
+        immediate,
+        v,
+        changed: !!m.sim.changed,
+        winner: m.sim.winner || null,
+        carry: m.sim.carriedOutOpponent || 0
+      });
     }
 
-    // 用 minimax 值挑選
     scored.sort((a,b) => isMax ? (b.v - a.v) : (a.v - b.v));
-
     const best = scored[0];
 
-    // ✅ 強制輸出：每個可能棋步的評值 + 標示選到哪一步
     logAllMoveScores(scored, best);
-
     return { x: best.x, y: best.y, score: best.v };
   }
 
@@ -827,7 +841,7 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    // ✅ 先判斷終局
+    // 先判斷終局
     const over1 = checkGameOver(false, lastMover);
     if(over1.over){
       render();
@@ -840,7 +854,7 @@
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
-    // ✅ 棋譜：記錄這手（含 PASS）
+    // 棋譜：記錄這手（含 PASS）
     if(didMove) appendMoveLine(`${turn==='B'?'黑':'白'}: (${selected.x},${selected.y})`);
     else       appendMoveLine(`${turn==='B'?'黑':'白'}: PASS`);
 
