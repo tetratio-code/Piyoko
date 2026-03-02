@@ -167,7 +167,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v1.2</div>
+    <div class="title">小雞棋v1.3</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -179,6 +179,7 @@
         <option value="hh">雙方人類</option>
         <option value="ab">AI 執黑</option>
         <option value="aw">AI 執白</option>
+        <option value="aa">雙方 AI</option>
       </select>
       <span class="badge" title="Alpha-Beta 搜索深度">深度：6</span>
     </div>
@@ -199,14 +200,13 @@
   const W = 12;
   const H = 12;
   const POINTS_PER_TURN = 6;
-  const SEARCH_DEPTH = 6; // 預設搜索深度 6 步（ply）
+  const SEARCH_DEPTH = 6;
 
   const INITIAL_PIECES_PER_SIDE = 6;
   const INF = 1e9;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
-  // board[x][y] (1-indexed) -> 'B' | 'W' | null
   const board = Array.from({length: W+1}, ()=>Array(H+1).fill(null));
 
   const gridEl = document.getElementById('grid');
@@ -227,18 +227,12 @@
   function otherOf(c){ return c==='B'?'W':'B'; }
   function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
 
-  function log(msg){
-    logEl.textContent = msg || '';
-  }
+  function log(msg){ logEl.textContent = msg || ''; }
 
-  function deepCopyBoard(src){
-    return src.map(col => col.slice());
-  }
+  function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
   function clearBoard(b = board){
-    for(let x=1;x<=W;x++)
-      for(let y=1;y<=H;y++)
-        b[x][y]=null;
+    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++) b[x][y]=null;
   }
 
   function placeInitial(b = board){
@@ -270,13 +264,11 @@
         if(v){
           const p=document.createElement('div');
           p.className='piece '+(v==='B'?'black':'white');
-          if(group && group.x===x && group.ys.includes(y))
-            p.classList.add('grpGlow');
+          if(group && group.x===x && group.ys.includes(y)) p.classList.add('grpGlow');
           d.appendChild(p);
         }
 
-        if(selected && selected.x===x && selected.y===y)
-          d.classList.add('selOutline');
+        if(selected && selected.x===x && selected.y===y) d.classList.add('selOutline');
 
         gridEl.appendChild(d);
       }
@@ -284,12 +276,10 @@
     updateTurnUI();
   }
 
-  // ===== 規則核心（含 on-board / simulate 用的 *_On 版本） =====
-
+  // ===== 規則核心 =====
   function computeGroupOn(b, x,y){
     const moverColor=b[x][y];
     if(!moverColor) return null;
-
     const ys=[];
     for(let yy=y;yy<=H;yy++){
       if(b[x][yy]!==null) ys.push(yy);
@@ -313,7 +303,6 @@
     const top=g.ys[g.ys.length-1];
     if(top>=H) return false;
     if(b[g.x][top+1]!==null) return false;
-
     for(let i=g.ys.length-1;i>=0;i--){
       const yy=g.ys[i];
       b[g.x][yy+1]=b[g.x][yy];
@@ -348,11 +337,9 @@
   }
   function moveDown1(g){ return moveDown1On(board, g); }
 
-  // ✅ 改後的檢查：前下方
   function frontBlockedOn(b, g){
     const nx = g.x + dirOf(g.moverColor);
     if(nx<1 || nx>W) return false;
-
     for(const yy of g.ys){
       const fy = yy - 1;
       if(fy < 1) continue;
@@ -389,10 +376,7 @@
 
     return { borneOff:false, removed:{B:0, W:0}, blocked:false };
   }
-
-  function moveForward1(g){
-    return moveForward1On(board, g);
-  }
+  function moveForward1(g){ return moveForward1On(board, g); }
 
   function playerHasPiecesOn(b, color){
     for(let x=1;x<=W;x++){
@@ -405,18 +389,15 @@
   function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
 
   function countPiecesOn(b){
-    let bcnt=0, wcnt=0;
-    for(let x=1;x<=W;x++){
-      for(let y=1;y<=H;y++){
-        if(b[x][y]==='B') bcnt++;
-        else if(b[x][y]==='W') wcnt++;
-      }
+    let B=0,W=0;
+    for(let x=1;x<=W;x++) for(let y=1;y<=H;y++){
+      if(b[x][y]==='B') B++;
+      else if(b[x][y]==='W') W++;
     }
-    return {B:bcnt, W:wcnt};
+    return {B,W};
   }
 
-  // ===== 重生與下落（動畫版 / 模擬版） =====
-
+  // ===== 重生/下落 =====
   async function dropPieceAt(x, y){
     while(y>1 && board[x][y-1]===null){
       board[x][y-1] = board[x][y];
@@ -429,7 +410,6 @@
 
   async function respawnAndDrop(color, count){
     if(count<=0) return;
-
     const spawnX = (color==='B') ? 1 : 12;
     for(let k=0; k<count; k++){
       let targetY = H - k;
@@ -461,10 +441,7 @@
     }
   }
 
-  // ===== 評值函數（alpha-beta 用） =====
-  // 黑：min(14, x+y)
-  // 白：鏡像 x'=(W+1-x)，min(14, x'+y)
-  // 出界：每顆 14 分（用初始數 - 盤上數補回）
+  // ===== 評值 =====
   function evaluateBoard(b){
     let blackOn = 0, whiteOn = 0;
     let blackScore = 0, whiteScore = 0;
@@ -491,7 +468,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 產生所有合法手（用於 AI / PASS 判定） =====
+  // ===== 模擬走子 + 列合法手 =====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -556,9 +533,8 @@
     return moves;
   }
 
-  // ===== Alpha-Beta（深度 6）=====
+  // ===== Alpha-Beta =====
   const TT = new Map();
-
   function boardKey(b, turnColor, depth){
     let s = turnColor + '|' + depth + '|';
     for(let y=1;y<=H;y++){
@@ -572,8 +548,6 @@
   }
 
   function alphabeta(b, turnColor, depth, alpha, beta){
-    // ✅ 終局勝負（修正：你原本這裡黑白勝負寫反）
-    // 並加入「最短勝利路線」tie-break：越快贏分越高
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
     if(!blackHas) return (INF + depth);     // 黑勝：越快越好
@@ -586,15 +560,11 @@
     if(hit && hit.alpha <= alpha && hit.beta >= beta) return hit.value;
 
     const moves = listLegalMoves(b, turnColor);
-
-    // PASS（理論上不該常見；若真的發生，就依規則用「當下局面」評值）
     if(moves.length === 0) return evaluateBoard(b);
 
     const isMax = (turnColor === 'B');
 
-    for(const m of moves){
-      m.order = evaluateBoard(m.sim.b);
-    }
+    for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
     let best = isMax ? -INF : INF;
@@ -627,9 +597,7 @@
     let bestMove = null;
     let bestVal = isMax ? -INF : INF;
 
-    for(const m of moves){
-      m.order = evaluateBoard(m.sim.b);
-    }
+    for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
     let alpha = -INF, beta = INF;
@@ -644,7 +612,6 @@
         if(v < bestVal){ bestVal = v; bestMove = m; }
         if(bestVal < beta) beta = bestVal;
       }
-
       if(alpha >= beta) break;
     }
 
@@ -692,7 +659,6 @@
         await sleep(STEP_DELAY);
         break;
       }
-
       if(res.borneOff){
         render();
         await sleep(STEP_DELAY);
@@ -753,13 +719,12 @@
     const mv = pickBestAIMove();
     if(!mv){
       const cnt = countPiecesOn(board);
-      log(`AI 無合法手（PASS）。turn=${turn} 盤上 B=${cnt.B}, W=${cnt.W}\n（修正後理論上「差一步勝利」不會再走到這裡）`);
+      log(`AI 無合法手（PASS）。turn=${turn} 盤上 B=${cnt.B}, W=${cnt.W}`);
       render();
       return;
     }
 
     log(`AI 選擇 (${mv.x},${mv.y})，評分=${mv.score}`);
-
     selected = {x: mv.x, y: mv.y};
     group = computeGroup(mv.x, mv.y);
     render();
@@ -767,7 +732,7 @@
     await performMove();
   }
 
-  // ===== 互動：人類點選 =====
+  // ===== 人類點選（若輪到 AI 則忽略） =====
   gridEl.addEventListener('click', async e=>{
     if(isAnimating) return;
     if(isAI(turn)) return;
@@ -788,8 +753,8 @@
   });
 
   function applyMode(v){
-    aiBlack = (v === 'ab');
-    aiWhite = (v === 'aw');
+    aiBlack = (v === 'ab' || v === 'aa');
+    aiWhite = (v === 'aw' || v === 'aa');
     updateTurnUI();
     render();
     maybeTriggerAIMove();
