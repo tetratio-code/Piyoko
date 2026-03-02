@@ -167,7 +167,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v1.3</div>
+    <div class="title">小雞棋v1.4</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -397,6 +397,29 @@
     return {B,W};
   }
 
+  // ===== ✅ 終局判定（關鍵修正）=====
+  // - 若兩邊都沒棋：視為 lastMoverColor 勝（混色群組一起出界時會發生）
+  // - 若單邊沒棋：該邊勝
+  function checkGameOver(lastMoverColor = null, showAlert = false){
+    const bHas = playerHasPieces('B');
+    const wHas = playerHasPieces('W');
+
+    if(!bHas && !wHas){
+      const winner = lastMoverColor || 'B';
+      if(showAlert) alert(`${winner==='B'?'黑棋':'白棋'}勝利！`);
+      return { over:true, winner };
+    }
+    if(!bHas){
+      if(showAlert) alert('黑棋勝利！');
+      return { over:true, winner:'B' };
+    }
+    if(!wHas){
+      if(showAlert) alert('白棋勝利！');
+      return { over:true, winner:'W' };
+    }
+    return { over:false, winner:null };
+  }
+
   // ===== 重生/下落 =====
   async function dropPieceAt(x, y){
     while(y>1 && board[x][y-1]===null){
@@ -506,8 +529,15 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
-    if(!playerHasPiecesOn(b, turnColor)){
-      return { ok:true, b, nextTurn: turnColor, winner: turnColor, carriedOutOpponent: 0 };
+    const bHas = playerHasPiecesOn(b, 'B');
+    const wHas = playerHasPiecesOn(b, 'W');
+    if(!bHas || !wHas){
+      // 終局：回傳 winner（含雙方皆空時，視為 turnColor 勝）
+      let winner = null;
+      if(!bHas && !wHas) winner = turnColor;
+      else if(!bHas) winner = 'B';
+      else if(!wHas) winner = 'W';
+      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0 };
     }
 
     const opponent = otherOf(turnColor);
@@ -675,10 +705,12 @@
       if(belowOccupiedOrGround(group)) break;
     }
 
-    if(!playerHasPieces(turn)){
+    // ✅ 行動後立刻檢查終局（包含雙方皆空）
+    const over1 = checkGameOver(turn, false);
+    if(over1.over){
       render();
-      await sleep(120);
-      alert(`${turn==='B'?'黑棋':'白棋'}勝利！`);
+      await sleep(80);
+      alert(`${over1.winner==='B'?'黑棋':'白棋'}勝利！`);
       isAnimating = false;
       return;
     }
@@ -688,6 +720,17 @@
 
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
+
+      // ✅ 重生下落後再檢查一次終局（避免奇怪狀態）
+      const over2 = checkGameOver(turn, false);
+      if(over2.over){
+        render();
+        await sleep(80);
+        alert(`${over2.winner==='B'?'黑棋':'白棋'}勝利！`);
+        isAnimating = false;
+        return;
+      }
+
       selected = null;
       group = null;
       render();
@@ -708,10 +751,18 @@
   // ===== AI 觸發 =====
   async function maybeTriggerAIMove(){
     if(isAnimating) return;
+
+    // ✅ 任何時候觸發 AI 前先檢查終局，避免「終局被當 PASS」
+    const over = checkGameOver(null, false);
+    if(over.over) return;
+
     if(!isAI(turn)) return;
 
     await sleep(AI_THINK_DELAY);
     if(isAnimating || !isAI(turn)) return;
+
+    const over2 = checkGameOver(null, false);
+    if(over2.over) return;
 
     log(`AI 思考中（αβ 深度 ${SEARCH_DEPTH}）...`);
     await sleep(0);
