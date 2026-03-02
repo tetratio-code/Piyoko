@@ -166,7 +166,7 @@
     </div>
 
     <div class="panel">
-      <h1>回合資訊</h1>
+      <h1>回合資訊2</h1>
       <div class="row">
         <span id="turnBadge" class="badge"><span class="dot"></span><span>Turn</span></span>
         <span id="pointsBadge" class="badge">點數：6</span>
@@ -482,15 +482,20 @@
     
       // C) 檢查下方
       if (!belowOccupiedOrGround(group)) {
-        // 無支撐 → 下 1 格（只下一格，形成交替）
+        // 無支撐 → 下 1 格（只下一格）
         moveDown1(group);
         render();
         await sleep(STEP_DELAY);
-    
-        // 下完後回到迴圈檢查前方（形成前→下→前→下）
+      
+        // ✅ 重要：下完立刻檢查是否已觸地或有支撐；若是就停止，避免地面平移
+        if (belowOccupiedOrGround(group)) {
+          break;
+        }
+      
+        // 還是懸空才回去檢查前方（形成 前→下→前→下）
         continue;
       } else {
-        // ⚠️ 有支撐或到地面 → 立即停止，不再前移
+        // 有支撐或到地面 → 立即停止
         break;
       }
     }
