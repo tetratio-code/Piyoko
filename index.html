@@ -198,7 +198,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v2.2</div>
+    <div class="title">小雞棋v2.3</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -329,7 +329,7 @@
 
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
-  // ✅ 盤面 key（不含 depth），用於判斷「淨變化」與避免 NOOP 走法被當合法
+  // ✅ 盤面 key（不含 depth），用於判斷「淨變化」（保留：用來顯示 NOOP/CHG）
   function posKey(b){
     let s = '';
     for(let y=1;y<=H;y++){
@@ -560,7 +560,7 @@
     return blackScore - whiteScore;
   }
 
-  // ===== 模擬走子（✅ changed 改為「盤面淨變化」）=====
+  // ===== 模擬走子（保留 changed 但「不再用它過濾合法步」）=====
   function simulateMoveFrom(b0, x, y, turnColor){
     if(b0[x][y] !== turnColor) return { ok:false };
 
@@ -611,7 +611,7 @@
       let winner = null;
       if(!bHas && wHas) winner = 'B';
       else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor; // 兩邊都沒棋子：以最後行動者勝（你目前規則）
+      else winner = turnColor;
 
       const changed = (posKey(b) !== beforeKey);
       return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed };
@@ -630,13 +630,14 @@
     return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed };
   }
 
+  // ✅ 改動重點：不再避免 NOOP（sim.changed 不再用來過濾）
   function listLegalMoves(b, turnColor){
     const moves = [];
     for(let x=1;x<=W;x++){
       for(let y=1;y<=H;y++){
         if(b[x][y] !== turnColor) continue;
         const sim = simulateMoveFrom(b, x, y, turnColor);
-        if(sim.ok && sim.changed) moves.push({ x, y, sim });
+        if(sim.ok) moves.push({ x, y, sim }); // <-- NOOP 也會被納入
       }
     }
     return moves;
@@ -665,12 +666,7 @@
     if(!blackHas && whiteHas) return (WIN + depth);      // 黑勝
     if(!whiteHas && blackHas) return (-WIN - depth);     // 白勝
 
-    // ✅ 兩邊都沒棋：用「最後行動者」判勝負（此處無 lastMover，只能用 turnColor 推）
-    // 你的 simulateMoveFrom 目前回傳 nextTurn = turnColor（不換手）表示「最後行動者」就是 turnColor
-    // 所以在 alphabeta 的狀態下，「輪到 turnColor」代表上一手也可能是 turnColor 或對手；此規則本身不完美。
-    // 但至少不要回 0，回一個確定的勝負分以避免誤導。
     if(!blackHas && !whiteHas){
-      // 保守：視為「上一手行動者 = otherOf(turnColor)」勝
       const winner = otherOf(turnColor);
       return (winner === 'B') ? (WIN + depth) : (-WIN - depth);
     }
@@ -743,7 +739,6 @@
   }
 
   function pickBestAIMove(){
-    // root：每個候選都用 full window 求「可比較的值」
     TT.clear();
 
     const moves = listLegalMoves(board, turn);
