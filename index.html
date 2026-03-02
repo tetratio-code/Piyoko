@@ -630,8 +630,9 @@
     return moves;
   }
 
-  // ===== Alpha-Beta =====
+  // ===== Alpha-Beta（修正版 TT：EXACT/LOWER/UPPER）=====
   const TT = new Map();
+
   function boardKey(b, turnColor, depth){
     let s = turnColor + '|' + depth + '|';
     for(let y=1;y<=H;y++){
@@ -648,27 +649,42 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    if(!blackHas && whiteHas) return (WIN + depth);     // 黑勝（對黑極佳）
-    if(!whiteHas && blackHas) return (-WIN - depth);    // 白勝（對黑極差）
+    // 終局（以「自己棋子全出界即勝」的規則：黑沒棋=黑勝 => 對黑正分）
+    if(!blackHas && whiteHas) return (WIN + depth);
+    if(!whiteHas && blackHas) return (-WIN - depth);
     if(!blackHas && !whiteHas) return 0;
 
     if(depth === 0) return evaluateBoard(b);
 
+    const alpha0 = alpha, beta0 = beta;
     const key = boardKey(b, turnColor, depth);
     const hit = TT.get(key);
-    if(hit && hit.alpha <= alpha && hit.beta >= beta) return hit.value;
+
+    // Probe
+    if(hit){
+      if(hit.flag === 'EXACT'){
+        return hit.value;
+      } else if(hit.flag === 'LOWER'){ // value 是下界
+        alpha = Math.max(alpha, hit.value);
+      } else if(hit.flag === 'UPPER'){ // value 是上界
+        beta = Math.min(beta, hit.value);
+      }
+      if(alpha >= beta) return hit.value;
+    }
 
     const moves = listLegalMoves(b, turnColor);
 
+    // PASS：沒得走就換手（消耗深度）
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta);
-      TT.set(key, { value: v, alpha, beta });
+      // PASS 的節點也可以存 EXACT
+      TT.set(key, { value: v, flag: 'EXACT' });
       return v;
     }
 
     const isMax = (turnColor === 'B');
 
-    // move ordering
+    // ordering（可留可不留）
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
 
@@ -679,16 +695,21 @@
 
       if(isMax){
         if(v > best) best = v;
-        if(best > alpha) alpha = best;
+        alpha = Math.max(alpha, best);
         if(alpha >= beta) break;
       } else {
         if(v < best) best = v;
-        if(best < beta) beta = best;
+        beta = Math.min(beta, best);
         if(alpha >= beta) break;
       }
     }
 
-    TT.set(key, { value: best, alpha, beta });
+    // Store：用原始窗格 alpha0/beta0 決定旗標
+    let flag = 'EXACT';
+    if(best <= alpha0) flag = 'UPPER';
+    else if(best >= beta0) flag = 'LOWER';
+
+    TT.set(key, { value: best, flag });
     return best;
   }
 
