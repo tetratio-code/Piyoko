@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.9</div>
+    <div class="title">小雞棋v3.10</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -456,9 +456,6 @@
   }
 
   function placeInitial(b = board){
-    //const blacks=[[7,1],[8,2]];
-    //const whites=[[7,2],[7,3],[8,1]];
-
     const blacks=[[1,1],[1,2],[1,3],[2,1],[2,2],[3,1]];
     const whites=[[12,1],[12,2],[12,3],[11,1],[11,2],[10,1]];
     blacks.forEach(([x,y])=>b[x][y]='B');
@@ -658,24 +655,11 @@
       if(belowOccupiedOrGroundOn(b, g)) break;
     }
 
-    const bHas = playerHasPiecesOn(b, 'B');
-    const wHas = playerHasPiecesOn(b, 'W');
-
-    if(!bHas || !wHas){
-      let winner = null;
-      if(!bHas && wHas) winner = 'B';
-      else if(!wHas && bHas) winner = 'W';
-      else winner = turnColor;
-
-      const changed = (posKey(b) !== beforeKey);
-      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed, lastMover: turnColor };
-    }
-
     const opponent = otherOf(turnColor);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
+    // ✅ 重要修正：對手棋子被推出場外 -> 先重生，不要在重生前判勝負
     if(carriedOutOpponent > 0){
-      // respawn sim
       const spawnX = (opponent==='B') ? 1 : 12;
       for(let k=0; k<carriedOutOpponent; k++){
         let yy = H - k;
@@ -689,7 +673,22 @@
         }
       }
       const changed = (posKey(b) !== beforeKey);
+      // 有重生獎勵回合：不換手
       return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed, lastMover: turnColor };
+    }
+
+    // ✅ 沒有重生時，才檢查終局（此時才是真正“結束”）
+    const bHas = playerHasPiecesOn(b, 'B');
+    const wHas = playerHasPiecesOn(b, 'W');
+
+    if(!bHas || !wHas){
+      let winner = null;
+      if(!bHas && wHas) winner = 'B';
+      else if(!wHas && bHas) winner = 'W';
+      else winner = turnColor;
+
+      const changed = (posKey(b) !== beforeKey);
+      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed, lastMover: turnColor };
     }
 
     const changed = (posKey(b) !== beforeKey);
@@ -798,18 +797,17 @@
     TT.set(key, { value: best, flag });
     return best;
   }
+
   function alphabetaEx(b, turnColor, depth, alpha, beta, lastMoverAB, noopStreakAB){
     const WIN_TH = 9e8;
-  
-    // 和局（已解）
+
     if(noopStreakAB >= DRAW_NOOP_N){
       return { v: 0, terminalEval: 0 };
     }
-  
+
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
-  
-    // 終局（已解）：同時帶回「此終局盤面」的 evaluateBoard
+
     if(!blackHas && whiteHas){
       return { v: (WIN + depth), terminalEval: evaluateBoard(b) };   // 黑勝
     }
@@ -820,29 +818,27 @@
       const v = (lastMoverAB === 'B') ? (WIN + depth) : (-WIN - depth);
       return { v, terminalEval: evaluateBoard(b) };
     }
-  
+
     if(depth === 0){
       const e = evaluateBoard(b);
       return { v: e, terminalEval: null };
     }
-  
+
     const moves = listLegalMoves(b, turnColor);
-  
-    // PASS：沒得走（算 NOOP）
+
     if(moves.length === 0){
       return alphabetaEx(b, otherOf(turnColor), depth - 1, alpha, beta, turnColor, noopStreakAB + 1);
     }
-  
+
     const isMax = (turnColor === 'B');
-  
+
     for(const m of moves) m.order = evaluateBoard(m.sim.b);
     moves.sort((a,b2) => isMax ? (b2.order - a.order) : (a.order - b2.order));
-  
+
     let bestV = isMax ? -Infinity : Infinity;
     let bestTE = null;
-  
+
     function better(aV, aTE, bV, bTE){
-      // 回傳 true 代表 a 比 b 好
       if(isMax){
         if(aV > bV) return true;
         if(aV < bV) return false;
@@ -850,23 +846,20 @@
         if(aV < bV) return true;
         if(aV > bV) return false;
       }
-  
-      // v 相等：若已解 WIN/LOSS，就「永遠站在勝方」挑終局評值，避免 turn 造成跳動
+
       if(Math.abs(aV) >= WIN_TH && Math.abs(bV) >= WIN_TH){
-        if(aV > 0){ // 黑勝：終局評值取最大（黑想要最好看的終局）
+        if(aV > 0){
           return (aTE ?? -Infinity) > (bTE ?? -Infinity);
-        }else if(aV < 0){ // 白勝：終局評值取最小（白想要最好看的終局 => 對黑最負）
+        }else if(aV < 0){
           return (aTE ?? Infinity) < (bTE ?? Infinity);
         }
       }
-  
-      // 非已解或沒有 terminalEval：就不特別 tie-break
       return false;
     }
-  
+
     for(const m of moves){
       const nextNoop = m.sim.changed ? 0 : (noopStreakAB + 1);
-  
+
       const r = alphabetaEx(
         m.sim.b,
         m.sim.nextTurn,
@@ -876,10 +869,10 @@
         m.sim.lastMover,
         nextNoop
       );
-  
+
       const aV = r.v;
       const aTE = r.terminalEval;
-  
+
       if(bestTE === null && bestV === (isMax ? -Infinity : Infinity)){
         bestV = aV;
         bestTE = aTE;
@@ -887,7 +880,7 @@
         bestV = aV;
         bestTE = aTE;
       }
-  
+
       if(isMax){
         alpha = Math.max(alpha, bestV);
         if(alpha >= beta) break;
@@ -896,7 +889,7 @@
         if(alpha >= beta) break;
       }
     }
-  
+
     return { v: bestV, terminalEval: bestTE };
   }
 
@@ -908,21 +901,19 @@
     if(turn === 'W'){ d -= 1; }
     return d;
   }
-  
+
   function computeChartScoreNow(){
     const D = chartDepth();
-    TT.clear(); // 走勢圖這條可以不使用你原本 TT（先簡單化）
-  
+    TT.clear();
+
     const r = alphabetaEx(board, turn, D, -Infinity, Infinity, lastMover, noopStreak);
-  
-    // 已解勝負：固定用「最後收束終局盤面」的評值
+
     if(Math.abs(r.v) >= 9e8 && r.terminalEval !== null){
       return r.terminalEval;
     }
-  
     return r.v;
   }
-  
+
   function pushChartPoint(){
     addBar(computeChartScoreNow());
   }
@@ -1006,15 +997,15 @@
     if(isAnimating) return;
     if(!selected||!group) return;
     if(group.moverColor!==turn) return;
-  
+
     isAnimating = true;
-  
+
     const beforeKey = posKey(board);
     lastMover = turn;
-  
+
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
-  
+
     // 上升
     for(let i=0;i<moveAmount;i++){
       if(moveUpStep(group)){
@@ -1022,11 +1013,11 @@
         await sleep(STEP_DELAY);
       } else break;
     }
-  
+
     // 前進/下落
     let carriedOut = {B:0, W:0};
     let safety = 0;
-  
+
     while(safety++ < 3000){
       if(frontBlocked(group)){
         while(canMoveDown(group)){
@@ -1036,12 +1027,12 @@
         }
         break;
       }
-  
+
       const res = moveForward1(group);
-  
+
       carriedOut.B += res.removed.B;
       carriedOut.W += res.removed.W;
-  
+
       if(res.blocked){
         render();
         await sleep(STEP_DELAY);
@@ -1052,52 +1043,41 @@
         await sleep(STEP_DELAY);
         break;
       }
-  
+
       if(!belowOccupiedOrGround(group)){
         moveDown1(group);
       }
-  
+
       render();
       await sleep(STEP_DELAY);
-  
+
       if(belowOccupiedOrGround(group)) break;
     }
-  
-    // 先判勝負（此時尚未重生，但「雙方皆無棋」等也要能抓到）
-    const over0 = checkGameOver(false, lastMover);
-    if(over0.over){
-      render();
-      await sleep(50);
-      alert(`${over0.winner==='B'?'黑棋':'白棋'}勝利！`);
-      isAnimating = false;
-      return;
-    }
-  
+
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
-  
-    // ✅ 若有「推出對手出場外」→ 先重生，再決定是否換手
+
+    // ✅ 重要修正：若對手棋子被推出場外 -> 先重生（避免重生前誤判勝負）
     let keepTurn = false;
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
-  
-      const over1 = checkGameOver(false, lastMover);
-      if(over1.over){
-        render();
-        await sleep(50);
-        alert(`${over1.winner==='B'?'黑棋':'白棋'}勝利！`);
-        isAnimating = false;
-        return;
-      }
-  
-      keepTurn = true; // ✅ 規則：推出對手並重生 => 自己再走一次
+      keepTurn = true; // 推出對手並重生 => 自己再走一次
     }
-  
+
+    // ✅ 重生完成後，再判勝負（以最終盤面為準）
+    const over = checkGameOver(false, lastMover);
+    if(over.over){
+      render();
+      await sleep(50);
+      alert(`${over.winner==='B'?'黑棋':'白棋'}勝利！`);
+      isAnimating = false;
+      return;
+    }
+
     // ✅ 用「最終盤面」（含重生後）判定 NOOP
     const finalKey = posKey(board);
     const netChanged = (finalKey !== beforeKey);
-  
-    // ✅ NOOP streak（用最終淨變化）
+
     if(!netChanged){
       const dr = bumpNoopStreakAndCheckDraw(true);
       if(dr.over){
@@ -1107,19 +1087,19 @@
     } else {
       resetNoopStreak();
     }
-  
+
     // ✅ 換手規則：只有在「沒有重生獎勵回合」才換手
     if(!keepTurn){
       turn = opponent;
     }
-  
+
     selected = null;
     group = null;
     render();
-  
+
     // 每步都畫（turn 可能沒變，也可能已切換）
     pushChartPoint();
-  
+
     isAnimating = false;
     await maybeTriggerAIMove();
   }
@@ -1204,7 +1184,6 @@
 
   document.getElementById('btnClearMoves').onclick=()=>{
     clearChart();
-    // 清空後補一個「目前局面」點（此時 turn 不變，所以會用白少算一步的規則）
     pushChartPoint();
   };
 
@@ -1219,7 +1198,6 @@
     resetNoopStreak();
     clearChart();
     render();
-    // 開局先畫一點
     pushChartPoint();
     maybeTriggerAIMove();
   };
@@ -1231,7 +1209,6 @@
   render();
   resetNoopStreak();
   initChart();
-  // 開局先畫一點
   pushChartPoint();
 })();
 </script>
