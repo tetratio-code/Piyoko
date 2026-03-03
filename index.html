@@ -802,7 +802,7 @@
   // ===== ✅ 每步都畫 + 白少算一步（只影響畫圖，不影響 AI 選步深度）=====
   function chartDepth(){
     let d = SEARCH_DEPTH;
-    if(d < 2) d = 2;
+    if(d < 6) d = 6;
     if(d % 2 === 1){ d += 1; }
     if(turn === 'W'){ d -= 1; }
     return d;
