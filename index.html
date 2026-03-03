@@ -195,7 +195,7 @@
       display:flex;
       gap: 6px;
       align-items: center;
-      height: 240px; /* 每手一條，直條本身上下延伸 */
+      height: 240px;
       padding: 6px 4px;
     }
 
@@ -224,7 +224,7 @@
       top:50%;
       transform: translateY(-100%);
       height: 0%;
-      background: #0b1220; /* 黑優勢 */
+      background: #0b1220;
     }
 
     .barDown{
@@ -232,7 +232,7 @@
       left:0; right:0;
       top:50%;
       height: 0%;
-      background: #e5e7eb; /* 白優勢 */
+      background: #e5e7eb;
     }
 
     .chartLegend{
@@ -280,7 +280,7 @@
       <button id="btnClearMoves" title="清空走勢（不影響盤面）">Clear</button>
     </div>
 
-    <div class="movesTitle">局勢走勢（每手一條）</div>
+    <div class="movesTitle">局勢走勢（每手一條，使用 minimax 值）</div>
     <div id="moves" class="movesBox"></div>
   </div>
 </div>
@@ -294,12 +294,12 @@
   const H = 12;
   const POINTS_PER_TURN = 6;
 
-  let SEARCH_DEPTH = 6; // slider 可調
+  let SEARCH_DEPTH = 6;
 
   const INITIAL_PIECES_PER_SIDE = 6;
   const WIN = 1e9;
 
-  // ✅ 規則：連續第 N 次「淨變化為 NOOP」（含 PASS）=> 和局（評值強制=0）
+  // 規則：連續第 N 次「淨變化 NOOP」（含 PASS）=> 和局（評值強制=0）
   const DRAW_NOOP_N = 5;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
@@ -323,11 +323,12 @@
   let aiBlack=false;
   let aiWhite=false;
 
-  // ✅ 兩邊都沒棋 => lastMover 勝
   let lastMover = 'B';
-
-  // ✅ 連續 NOOP 計數（真實對局）
   let noopStreak = 0;
+
+  function dirOf(c){ return c==='B'?1:-1; }
+  function otherOf(c){ return c==='B'?'W':'B'; }
+  function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
 
   // ===== 走勢圖 UI =====
   let chartEl=null, colsEl=null;
@@ -353,11 +354,8 @@
     movesEl.appendChild(legend);
   }
 
-  // 固定縮放：分數絕對值 >= SCALE 當作滿格（你可自行調大/調小）
   const SCALE = 30;
-
   function scoreToPct(v){
-    // 終局極值
     if(Math.abs(v) >= 9e8) return 100;
     const a = Math.min(SCALE, Math.abs(v));
     return Math.round((a / SCALE) * 100);
@@ -396,7 +394,6 @@
     col.appendChild(down);
     colsEl.appendChild(col);
 
-    // 捲到最右（最新）
     movesEl.scrollLeft = movesEl.scrollWidth;
     movesEl.scrollTop = movesEl.scrollHeight;
   }
@@ -405,10 +402,7 @@
     initChart();
   }
 
-  function dirOf(c){ return c==='B'?1:-1; }
-  function otherOf(c){ return c==='B'?'W':'B'; }
-  function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
-
+  // ===== UI =====
   function updateTurnUI(){
     const dot = turnBadgeEl.querySelector('.dot');
     dot.className = 'dot ' + (turn==='B'?'black':'white');
@@ -434,15 +428,14 @@
           if(group && group.x===x && group.ys.includes(y)) p.classList.add('grpGlow');
           d.appendChild(p);
         }
-
         if(selected && selected.x===x && selected.y===y) d.classList.add('selOutline');
-
         gridEl.appendChild(d);
       }
     }
     updateTurnUI();
   }
 
+  // ===== 基本 =====
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
   function posKey(b){
@@ -592,72 +585,6 @@
     }
     return false;
   }
-  function playerHasPieces(color){ return playerHasPiecesOn(board, color); }
-
-  // ===== 終局判定 =====
-  function checkGameOver(showAlert = false, moverColor = null){
-    const bHas = playerHasPieces('B');
-    const wHas = playerHasPieces('W');
-
-    if(!bHas && wHas){
-      if(showAlert) alert('黑棋勝利！');
-      return { over:true, winner:'B', draw:false };
-    }
-    if(!wHas && bHas){
-      if(showAlert) alert('白棋勝利！');
-      return { over:true, winner:'W', draw:false };
-    }
-    if(!bHas && !wHas){
-      const w = moverColor || lastMover || 'B';
-      if(showAlert) alert(`${w==='B'?'黑棋':'白棋'}勝利！`);
-      return { over:true, winner:w, draw:false };
-    }
-    return { over:false, winner:null, draw:false };
-  }
-
-  // ===== 重生/下落 =====
-  async function dropPieceAt(x, y){
-    while(y>1 && board[x][y-1]===null){
-      board[x][y-1] = board[x][y];
-      board[x][y] = null;
-      y = y-1;
-      render();
-      await sleep(STEP_DELAY);
-    }
-  }
-
-  async function respawnAndDrop(color, count){
-    if(count<=0) return;
-    const spawnX = (color==='B') ? 1 : 12;
-    for(let k=0; k<count; k++){
-      let targetY = H - k;
-      while(targetY >= 1 && board[spawnX][targetY] !== null) targetY--;
-      if(targetY < 1) break;
-
-      board[spawnX][targetY] = color;
-      render();
-      await sleep(STEP_DELAY);
-      await dropPieceAt(spawnX, targetY);
-    }
-  }
-
-  function respawnDropSim(b, color, count){
-    if(count<=0) return;
-    const spawnX = (color==='B') ? 1 : 12;
-
-    for(let k=0; k<count; k++){
-      let y = H - k;
-      while(y >= 1 && b[spawnX][y] !== null) y--;
-      if(y < 1) break;
-
-      b[spawnX][y] = color;
-      while(y > 1 && b[spawnX][y-1] === null){
-        b[spawnX][y-1] = b[spawnX][y];
-        b[spawnX][y] = null;
-        y--;
-      }
-    }
-  }
 
   // ===== 評值 =====
   function evaluateBoard(b){
@@ -684,16 +611,6 @@
     whiteScore += 14 * Math.max(0, whiteOff);
 
     return blackScore - whiteScore;
-  }
-
-  function currentEvalForChart(){
-    // NOOP 和局優先
-    if(noopStreak >= DRAW_NOOP_N) return 0;
-    const over = checkGameOver(false, lastMover);
-    if(over.over && !over.draw){
-      return (over.winner === 'B') ? WIN : -WIN;
-    }
-    return evaluateBoard(board);
   }
 
   // ===== 模擬走子（changed=淨變化）=====
@@ -749,39 +666,32 @@
       else winner = turnColor;
 
       const changed = (posKey(b) !== beforeKey);
-      return {
-        ok:true, b,
-        nextTurn: turnColor,
-        winner,
-        carriedOutOpponent: 0,
-        changed,
-        lastMover: turnColor
-      };
+      return { ok:true, b, nextTurn: turnColor, winner, carriedOutOpponent: 0, changed, lastMover: turnColor };
     }
 
     const opponent = otherOf(turnColor);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
     if(carriedOutOpponent > 0){
-      respawnDropSim(b, opponent, carriedOutOpponent);
+      // respawn sim
+      const spawnX = (opponent==='B') ? 1 : 12;
+      for(let k=0; k<carriedOutOpponent; k++){
+        let yy = H - k;
+        while(yy >= 1 && b[spawnX][yy] !== null) yy--;
+        if(yy < 1) break;
+        b[spawnX][yy] = opponent;
+        while(yy > 1 && b[spawnX][yy-1] === null){
+          b[spawnX][yy-1] = b[spawnX][yy];
+          b[spawnX][yy] = null;
+          yy--;
+        }
+      }
       const changed = (posKey(b) !== beforeKey);
-      return {
-        ok:true, b,
-        nextTurn: turnColor,
-        carriedOutOpponent,
-        changed,
-        lastMover: turnColor
-      };
+      return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed, lastMover: turnColor };
     }
 
     const changed = (posKey(b) !== beforeKey);
-    return {
-      ok:true, b,
-      nextTurn: opponent,
-      carriedOutOpponent: 0,
-      changed,
-      lastMover: turnColor
-    };
+    return { ok:true, b, nextTurn: opponent, carriedOutOpponent: 0, changed, lastMover: turnColor };
   }
 
   function listLegalMoves(b, turnColor){
@@ -841,15 +751,7 @@
 
     // PASS：沒得走（算 NOOP）
     if(moves.length === 0){
-      const v = alphabeta(
-        b,
-        otherOf(turnColor),
-        depth - 1,
-        alpha,
-        beta,
-        turnColor,
-        noopStreakAB + 1
-      );
+      const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta, turnColor, noopStreakAB + 1);
       TT.set(key, { value: v, flag: 'EXACT' });
       return v;
     }
@@ -893,18 +795,26 @@
     return best;
   }
 
+  // ✅ 用 root minimax 畫長條（以「目前 turn/noopStreak/lastMover」為狀態）
+  function rootMinimaxForChart(){
+    TT.clear();
+    return alphabeta(board, turn, SEARCH_DEPTH, -Infinity, Infinity, lastMover, noopStreak);
+  }
+
+  function pushChartPoint(){
+    addBar(rootMinimaxForChart());
+  }
+
+  // ===== AI =====
   function pickBestAIMove(){
     TT.clear();
-
     const moves = listLegalMoves(board, turn);
     if(moves.length === 0) return null;
 
     const isMax = (turn === 'B');
-
     const scored = [];
     for(const m of moves){
       const nextNoop = m.sim.changed ? 0 : (noopStreak + 1);
-
       const v = alphabeta(
         m.sim.b,
         m.sim.nextTurn,
@@ -914,15 +824,13 @@
         m.sim.lastMover,
         nextNoop
       );
-
       scored.push({ x: m.x, y: m.y, v });
     }
-
     scored.sort((a,b) => isMax ? (b.v - a.v) : (a.v - b.v));
     return { x: scored[0].x, y: scored[0].y };
   }
 
-  // ===== 走子（動畫版）=====
+  // ===== 真實走子 =====
   async function performMove(){
     if(isAnimating) return;
     if(!selected||!group) return;
@@ -985,71 +893,88 @@
     const afterKey = posKey(board);
     const netChanged = (afterKey !== beforeKey);
 
-    // 先判斷終局
-    const over1 = checkGameOver(false, lastMover);
-    if(over1.over){
-      addBar(currentEvalForChart());
-      render();
-      await sleep(80);
-      alert(`${over1.winner==='B'?'黑棋':'白棋'}勝利！`);
-      isAnimating = false;
-      return;
-    }
-
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
-    // ✅ NOOP streak（真實對局：以淨變化判定）
+    // NOOP streak（真實對局）
     if(!netChanged){
       const dr = bumpNoopStreakAndCheckDraw(true);
-      addBar(0); // NOOP 記一條（和局規則導向 0）
-      if(dr.over){
-        isAnimating = false;
-        return;
-      }
+      // PASS 會換手
+      turn = opponent;
+      selected = null; group = null;
+      render();
+      // ✅ 用「換手後」的狀態畫 root minimax
+      pushChartPoint();
+      isAnimating = false;
+      if(dr.over) return;
+      await maybeTriggerAIMove();
+      return;
     } else {
       resetNoopStreak();
-      addBar(currentEvalForChart()); // 走完一手（含吃子/推進）後，記錄局勢
     }
 
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
-
-      const over2 = checkGameOver(false, lastMover);
-      addBar(currentEvalForChart());
-      if(over2.over){
-        render();
-        await sleep(80);
-        alert(`${over2.winner==='B'?'黑棋':'白棋'}勝利！`);
-        isAnimating = false;
-        return;
-      }
-
-      selected = null;
-      group = null;
-      render();
-      isAnimating = false;
-      await maybeTriggerAIMove();
-      return;
     }
 
-    if(!netChanged){
-      turn = opponent;
-      selected = null;
-      group = null;
-      render();
-      isAnimating = false;
-      await maybeTriggerAIMove();
-      return;
-    }
-
+    // 換手
     turn = opponent;
     selected = null;
     group = null;
     render();
-    isAnimating = false;
 
+    // ✅ 每手結束後（已換手）畫 root minimax
+    pushChartPoint();
+
+    isAnimating = false;
     await maybeTriggerAIMove();
+  }
+
+  // ===== 終局判定（真實對局 alert）=====
+  function checkGameOver(showAlert = false, moverColor = null){
+    const blackHas = playerHasPiecesOn(board, 'B');
+    const whiteHas = playerHasPiecesOn(board, 'W');
+
+    if(!blackHas && whiteHas){
+      if(showAlert) alert('黑棋勝利！');
+      return { over:true, winner:'B' };
+    }
+    if(!whiteHas && blackHas){
+      if(showAlert) alert('白棋勝利！');
+      return { over:true, winner:'W' };
+    }
+    if(!blackHas && !whiteHas){
+      const w = moverColor || lastMover || 'B';
+      if(showAlert) alert(`${w==='B'?'黑棋':'白棋'}勝利！`);
+      return { over:true, winner:w };
+    }
+    return { over:false, winner:null };
+  }
+
+  // ===== 重生/下落（真實對局）=====
+  async function dropPieceAt(x, y){
+    while(y>1 && board[x][y-1]===null){
+      board[x][y-1] = board[x][y];
+      board[x][y] = null;
+      y = y-1;
+      render();
+      await sleep(STEP_DELAY);
+    }
+  }
+
+  async function respawnAndDrop(color, count){
+    if(count<=0) return;
+    const spawnX = (color==='B') ? 1 : 12;
+    for(let k=0; k<count; k++){
+      let targetY = H - k;
+      while(targetY >= 1 && board[spawnX][targetY] !== null) targetY--;
+      if(targetY < 1) break;
+
+      board[spawnX][targetY] = color;
+      render();
+      await sleep(STEP_DELAY);
+      await dropPieceAt(spawnX, targetY);
+    }
   }
 
   // ===== AI 觸發 =====
@@ -1058,7 +983,6 @@
 
     const over0 = checkGameOver(false, lastMover);
     if(over0.over) return;
-
     if(noopStreak >= DRAW_NOOP_N) return;
     if(!isAI(turn)) return;
 
@@ -1072,17 +996,18 @@
     const mv = pickBestAIMove();
 
     if(!mv){
-      // 沒棋可走 => PASS（淨變化=0 => NOOP）
+      // PASS：換手 + NOOP
       lastMover = turn;
-
       const dr = bumpNoopStreakAndCheckDraw(true);
-      addBar(0);
-      if(dr.over) return;
 
       turn = otherOf(turn);
-      selected = null;
-      group = null;
+      selected = null; group = null;
       render();
+
+      // ✅ PASS 也算一手，換手後畫 root minimax
+      pushChartPoint();
+
+      if(dr.over) return;
       await maybeTriggerAIMove();
       return;
     }
@@ -1123,16 +1048,19 @@
   }
   modeSel.addEventListener('change', (e)=> applyMode(e.target.value));
 
-  // 搜索深度 slider
   function setDepth(n){
     SEARCH_DEPTH = n;
     depthBadge.textContent = `深度：${n}`;
+    // ✅ 深度改變後，下一個點就會用新深度；你也可以選擇立刻加一點：
+    // pushChartPoint();
   }
   depthRange.addEventListener('input', e=> setDepth(Number(e.target.value)));
   setDepth(Number(depthRange.value));
 
   document.getElementById('btnClearMoves').onclick=()=>{
     clearChart();
+    // 清空後補一個「目前局面」點
+    pushChartPoint();
   };
 
   document.getElementById('btnReset').onclick=()=>{
@@ -1146,6 +1074,8 @@
     resetNoopStreak();
     clearChart();
     render();
+    // ✅ 開局先畫一點（root minimax）
+    pushChartPoint();
     maybeTriggerAIMove();
   };
 
@@ -1156,7 +1086,8 @@
   render();
   resetNoopStreak();
   initChart();
-  addBar(currentEvalForChart()); // 開局先放一條
+  // ✅ 開局先畫一點（root minimax）
+  pushChartPoint();
 })();
 </script>
 
