@@ -341,9 +341,9 @@
   function keyOf(x,y){ return `${x},${y}`; }
 
   function getPieceSrc(color, state){
-    // /assets/B_calm.png ... /assets/W_scared.png
-    return `/assets/${color}_${state}.png`;
-  }
+    const s = (state === 'fly' || state === 'glide' || state === 'scared') ? state : 'calm';
+    return `./assets/${color}_${s}.png`;
+  }  
 
   function setScaredTemp(x, y, ms){
     const k = keyOf(x,y);
