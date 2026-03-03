@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.2</div>
+    <div class="title">小雞棋v3.2D</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -804,8 +804,8 @@
   function chartDepth(){
     let d = SEARCH_DEPTH;
     if(d < 2) d = 2;
-    if(turn === 'W') d -= 1;
-    if(turn === 'B' && d % 2 === 1) d -= 1;
+    //if(turn === 'W') d -= 1;
+    //if(turn === 'B' && d % 2 === 1) d -= 1;
     return d;
   }
   
