@@ -897,25 +897,27 @@
     if(isAnimating) return;
     if(!selected||!group) return;
     if(group.moverColor!==turn) return;
-
+  
     isAnimating = true;
-
+  
     const beforeKey = posKey(board);
     lastMover = turn;
-
+  
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
-
+  
+    // 上升
     for(let i=0;i<moveAmount;i++){
       if(moveUpStep(group)){
         render();
         await sleep(STEP_DELAY);
       } else break;
     }
-
+  
+    // 前進/下落
     let carriedOut = {B:0, W:0};
     let safety = 0;
-
+  
     while(safety++ < 3000){
       if(frontBlocked(group)){
         while(canMoveDown(group)){
@@ -925,12 +927,12 @@
         }
         break;
       }
-
+  
       const res = moveForward1(group);
-
+  
       carriedOut.B += res.removed.B;
       carriedOut.W += res.removed.W;
-
+  
       if(res.blocked){
         render();
         await sleep(STEP_DELAY);
@@ -941,21 +943,18 @@
         await sleep(STEP_DELAY);
         break;
       }
-
+  
       if(!belowOccupiedOrGround(group)){
         moveDown1(group);
       }
-
+  
       render();
       await sleep(STEP_DELAY);
-
+  
       if(belowOccupiedOrGround(group)) break;
     }
-
-    const afterKey = posKey(board);
-    const netChanged = (afterKey !== beforeKey);
-
-    // 勝負
+  
+    // 先判勝負（此時尚未重生，但「雙方皆無棋」等也要能抓到）
     const over0 = checkGameOver(false, lastMover);
     if(over0.over){
       render();
@@ -964,33 +963,15 @@
       isAnimating = false;
       return;
     }
-
+  
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
-
-    // NOOP / 換手
-    if(!netChanged){
-      const dr = bumpNoopStreakAndCheckDraw(true);
-      turn = opponent;
-      selected = null; group = null;
-      render();
-
-      // ✅ 每步都畫（此時 turn 已切換）
-      pushChartPoint();
-
-      isAnimating = false;
-      if(dr.over) return;
-      await maybeTriggerAIMove();
-      return;
-    } else {
-      resetNoopStreak();
-    }
-
+  
+    // ✅ 若有「推出對手出場外」→ 先重生，再決定是否換手
     let keepTurn = false;
-    
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
-    
+  
       const over1 = checkGameOver(false, lastMover);
       if(over1.over){
         render();
@@ -999,23 +980,37 @@
         isAnimating = false;
         return;
       }
-    
-      // ✅ 規則一致：把對手推出場外並重生 => 自己再走一次（不換手）
-      keepTurn = true;
+  
+      keepTurn = true; // ✅ 規則：推出對手並重生 => 自己再走一次
     }
-    
-    // ✅ 只有在「沒有重生」時才換手
+  
+    // ✅ 用「最終盤面」（含重生後）判定 NOOP
+    const finalKey = posKey(board);
+    const netChanged = (finalKey !== beforeKey);
+  
+    // ✅ NOOP streak（用最終淨變化）
+    if(!netChanged){
+      const dr = bumpNoopStreakAndCheckDraw(true);
+      if(dr.over){
+        isAnimating = false;
+        return;
+      }
+    } else {
+      resetNoopStreak();
+    }
+  
+    // ✅ 換手規則：只有在「沒有重生獎勵回合」才換手
     if(!keepTurn){
       turn = opponent;
     }
-    
+  
     selected = null;
     group = null;
     render();
-    
-    // ✅ 每步都畫（此時 turn 可能沒變，也可能已切換）
+  
+    // 每步都畫（turn 可能沒變，也可能已切換）
     pushChartPoint();
-    
+  
     isAnimating = false;
     await maybeTriggerAIMove();
   }
