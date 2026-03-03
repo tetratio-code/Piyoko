@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.3D</div>
+    <div class="title">小雞棋v3.4</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -814,7 +814,7 @@
   function computeChartScoreNow(){
     const D = chartDepth();
     TT.clear();
-    return alphabeta(board, turn, D, -Infinity, Infinity, lastMover, noopStreak);
+    return alphabeta(board, 'W', D, -Infinity, Infinity, lastMover, noopStreak);
   }
   
   function pushChartPoint(){
