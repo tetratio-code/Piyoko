@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v2.9</div>
+    <div class="title">小雞棋v3.0</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -800,19 +800,21 @@
   }
 
   // ===== ✅ 每步都畫 + 白少算一步（只影響畫圖，不影響 AI 選步深度）=====
+  // 圖表深度：只看 slider，不看 turn；並強制偶數，避免奇數深度的先手暫時優勢
   function chartDepth(){
-    // 原本的規則：白少算一步（維持）
-    let d = (turn === 'B') ? SEARCH_DEPTH : Math.max(1, SEARCH_DEPTH - 1);
-  
-    // ✅ 圖表策略：強制偶數深度，消除奇數深度的先手暫時優勢
-    if (d % 2 === 1) d = Math.max(1, d - 1);
-  
+    let d = SEARCH_DEPTH;
+    if(d < 2) d = 2;
+    if(d % 2 === 1) d -= 1;     // ✅ 強制偶數
     return d;
   }
+  
+  // 固定黑視角（正=黑優）且固定 root：永遠假設「黑方為 root」做局勢評估
   function computeChartScoreNow(){
+    const D = chartDepth();
     TT.clear();
-    return alphabeta(board, turn, chartDepth(), -Infinity, Infinity, lastMover, noopStreak);
+    return alphabeta(board, 'B', D, -Infinity, Infinity, lastMover, noopStreak);
   }
+  
   function pushChartPoint(){
     addBar(computeChartScoreNow());
   }
