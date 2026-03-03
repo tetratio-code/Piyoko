@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.2D</div>
+    <div class="title">小雞棋v3.3</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -804,16 +804,19 @@
   function chartDepth(){
     let d = SEARCH_DEPTH;
     if(d < 2) d = 2;
-    //if(turn === 'W') d -= 1;
-    //if(turn === 'B' && d % 2 === 1) d -= 1;
+  
+    // 永遠使用 full-move 深度（偶數）
+    if(d % 2 === 1){
+      d -= 1;
+    }
+  
     return d;
   }
   
-  // 固定黑視角（正=黑優）且固定 root：永遠假設「黑方為 root」做局勢評估
   function computeChartScoreNow(){
     const D = chartDepth();
     TT.clear();
-    return alphabeta(board, 'B', D, -Infinity, Infinity, lastMover, noopStreak);
+    return alphabeta(board, turn, D, -Infinity, Infinity, lastMover, noopStreak);
   }
   
   function pushChartPoint(){
