@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.6</div>
+    <div class="title">小雞棋v3.7</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -811,7 +811,15 @@
   function computeChartScoreNow(){
     const D = chartDepth();
     TT.clear();
-    return alphabeta(board, turn, D, -Infinity, Infinity, lastMover, noopStreak);
+  
+    const v = alphabeta(board, turn, D, -Infinity, Infinity, lastMover, noopStreak);
+  
+    // ✅ 終局分數用「評值函數差距」顯示，不用 WIN/Loss 滿版
+    if(Math.abs(v) >= 9e8){
+      return evaluateBoard(board); // 黑視角差距（正=黑優，負=白優）
+    }
+  
+    return v;
   }
   
   function pushChartPoint(){
