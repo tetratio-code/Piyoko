@@ -253,7 +253,7 @@
   </div>
 
   <div class="panel">
-    <div class="title">小雞棋v3.3</div>
+    <div class="title">小雞棋v3.3D</div>
 
     <div class="row">
       <span id="turnBadge" class="badge"><span class="dot"></span><span id="turnText">回合</span></span>
@@ -806,9 +806,7 @@
     if(d < 2) d = 2;
   
     // 永遠使用 full-move 深度（偶數）
-    if(d % 2 === 1){
-      d -= 1;
-    }
+    //if(d % 2 === 1){ d -= 1; }
   
     return d;
   }
