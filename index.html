@@ -986,9 +986,11 @@
       resetNoopStreak();
     }
 
+    let keepTurn = false;
+    
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
-
+    
       const over1 = checkGameOver(false, lastMover);
       if(over1.over){
         render();
@@ -997,16 +999,23 @@
         isAnimating = false;
         return;
       }
+    
+      // ✅ 規則一致：把對手推出場外並重生 => 自己再走一次（不換手）
+      keepTurn = true;
     }
-
-    turn = opponent;
+    
+    // ✅ 只有在「沒有重生」時才換手
+    if(!keepTurn){
+      turn = opponent;
+    }
+    
     selected = null;
     group = null;
     render();
-
-    // ✅ 每步都畫（此時 turn 已切換）
+    
+    // ✅ 每步都畫（此時 turn 可能沒變，也可能已切換）
     pushChartPoint();
-
+    
     isAnimating = false;
     await maybeTriggerAIMove();
   }
