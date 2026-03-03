@@ -284,6 +284,7 @@
     <div id="moves" class="movesBox"></div>
   </div>
 </div>
+
 <script>
 (() => {
   const STEP_DELAY = 100;
@@ -399,9 +400,7 @@
     movesEl.scrollTop = movesEl.scrollHeight;
   }
 
-  function clearChart(){
-    initChart();
-  }
+  function clearChart(){ initChart(); }
 
   // ===== UI =====
   function updateTurnUI(){
@@ -800,46 +799,23 @@
     return best;
   }
 
-  // ===== ✅ 走勢圖：用「AI root 分數」，固定黑視角（正=黑優）=====
-  // - 優先用 pickBestAIMove() 產生的 root 分數（不重算）
-  // - 若當前回合不是 AI（人類回合），才會補算一次 root（仍是黑視角）
-  let cachedRootScore = null;
-  let cachedRootSig = '';
-
-  function stateSig(){
-    // 注意：turn / lastMover / noopStreak 都會影響 alphabeta 結果
-    return `${turn}|${lastMover}|${noopStreak}|${posKey(board)}`;
+  // ===== ✅ 每步都畫 + 白少算一步（只影響畫圖，不影響 AI 選步深度）=====
+  function chartDepth(){
+    return (turn === 'B') ? SEARCH_DEPTH : Math.max(1, SEARCH_DEPTH - 1);
   }
-
-  function computeRootScoreNow(){
+  function computeChartScoreNow(){
     TT.clear();
-    return alphabeta(board, turn, SEARCH_DEPTH, -Infinity, Infinity, lastMover, noopStreak);
+    return alphabeta(board, turn, chartDepth(), -Infinity, Infinity, lastMover, noopStreak);
   }
-
-  function getChartScoreBlackPerspective(){
-    const sig = stateSig();
-    if(cachedRootSig === sig && cachedRootScore !== null) return cachedRootScore;
-    const v = computeRootScoreNow();
-    cachedRootSig = sig;
-    cachedRootScore = v;
-    return v;
-  }
-
   function pushChartPoint(){
-    addBar(getChartScoreBlackPerspective());
+    addBar(computeChartScoreNow());
   }
 
-  // ===== AI：回傳最佳步 + root 分數（黑視角）=====
+  // ===== AI：選步仍用「平衡深度 SEARCH_DEPTH」=====
   function pickBestAIMove(){
     TT.clear();
     const moves = listLegalMoves(board, turn);
-    if(moves.length === 0){
-      // PASS：root 分數就是此局面（因為沒有走法）
-      const rootV = alphabeta(board, turn, SEARCH_DEPTH, -Infinity, Infinity, lastMover, noopStreak);
-      cachedRootSig = stateSig();
-      cachedRootScore = rootV;
-      return null;
-    }
+    if(moves.length === 0) return null;
 
     const isMax = (turn === 'B');
     const scored = [];
@@ -859,13 +835,7 @@
     }
 
     scored.sort((a,b) => isMax ? (b.v - a.v) : (a.v - b.v));
-    const best = scored[0];
-
-    // ✅ 這就是「AI root 分數」（黑視角），拿來畫圖/顯示最穩
-    cachedRootSig = stateSig();
-    cachedRootScore = best.v;
-
-    return { x: best.x, y: best.y, score: best.v };
+    return { x: scored[0].x, y: scored[0].y, score: scored[0].v };
   }
 
   // ===== 終局判定（真實對局 alert）=====
@@ -923,10 +893,6 @@
 
     isAnimating = true;
 
-    // 走子前狀態，讓 cache 失效（避免用到上一回合 root 分數）
-    cachedRootSig = '';
-    cachedRootScore = null;
-
     const beforeKey = posKey(board);
     lastMover = turn;
 
@@ -982,7 +948,7 @@
     const afterKey = posKey(board);
     const netChanged = (afterKey !== beforeKey);
 
-    // 先判斷勝負
+    // 勝負
     const over0 = checkGameOver(false, lastMover);
     if(over0.over){
       render();
@@ -995,14 +961,14 @@
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
-    // NOOP streak（真實對局）
+    // NOOP / 換手
     if(!netChanged){
       const dr = bumpNoopStreakAndCheckDraw(true);
       turn = opponent;
       selected = null; group = null;
       render();
 
-      // ✅ 每手都加一條：此時用「黑視角 root 分數」
+      // ✅ 每步都畫（此時 turn 已切換）
       pushChartPoint();
 
       isAnimating = false;
@@ -1026,13 +992,12 @@
       }
     }
 
-    // 換手
     turn = opponent;
     selected = null;
     group = null;
     render();
 
-    // ✅ 每手都加一條：用固定黑視角的 root 分數
+    // ✅ 每步都畫（此時 turn 已切換）
     pushChartPoint();
 
     isAnimating = false;
@@ -1066,16 +1031,13 @@
       selected = null; group = null;
       render();
 
-      // ✅ PASS 也算一手：用固定黑視角 root 分數
+      // ✅ PASS 也算一步（此時 turn 已切換）
       pushChartPoint();
 
       if(dr.over) return;
       await maybeTriggerAIMove();
       return;
     }
-
-    // 注意：圖表分數會在 performMove() 結束後 pushChartPoint() 再記一次（那是「落子後的新局面」）
-    // 這裡 cachedRootScore 已經存了「此手落子前的 root 分數」，不用額外處理。
 
     selected = {x: mv.x, y: mv.y};
     group = computeGroup(mv.x, mv.y);
@@ -1116,18 +1078,13 @@
   function setDepth(n){
     SEARCH_DEPTH = n;
     depthBadge.textContent = `深度：${n}`;
-    // 深度改變後，下一次 pushChartPoint() 會用新深度
-    cachedRootSig = '';
-    cachedRootScore = null;
   }
   depthRange.addEventListener('input', e=> setDepth(Number(e.target.value)));
   setDepth(Number(depthRange.value));
 
   document.getElementById('btnClearMoves').onclick=()=>{
     clearChart();
-    cachedRootSig = '';
-    cachedRootScore = null;
-    // 清空後補一個「目前局面」點
+    // 清空後補一個「目前局面」點（此時 turn 不變，所以會用白少算一步的規則）
     pushChartPoint();
   };
 
@@ -1140,8 +1097,6 @@
     group=null;
     isAnimating=false;
     resetNoopStreak();
-    cachedRootSig = '';
-    cachedRootScore = null;
     clearChart();
     render();
     // 開局先畫一點
