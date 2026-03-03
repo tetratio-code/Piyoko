@@ -132,21 +132,16 @@
       pointer-events:none;
     }
 
+    /* ✅ 棋子改成圖片 */
     .piece{
-      width: calc(var(--cell) - 18px);
-      height: calc(var(--cell) - 18px);
-      border-radius: 10px;
-      box-shadow: 0 6px 14px rgba(0,0,0,0.35);
-      margin-top: 9px;
-    }
-
-    .black{
-      background: radial-gradient(circle at 30% 30%, rgba(40,55,70,1), rgba(6,10,16,1) 70%);
-      border: 1px solid rgba(255,255,255,0.12);
-    }
-    .white{
-      background: #e5e7eb;
-      border: 1px solid rgba(0,0,0,0.10);
+      width: calc(var(--cell) - 10px);
+      height: calc(var(--cell) - 10px);
+      margin-top: 5px;
+      object-fit: contain;
+      image-rendering: auto;
+      filter: drop-shadow(0 6px 14px rgba(0,0,0,0.35));
+      user-select: none;
+      pointer-events: none;
     }
 
     .selOutline{
@@ -299,7 +294,6 @@
   const INITIAL_PIECES_PER_SIDE = 6;
   const WIN = 1e9;
 
-  // ✅ 規則：連續第 N 次「淨變化 NOOP」（含 PASS）=> 和局（評值強制=0）
   const DRAW_NOOP_N = 5;
 
   function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
@@ -322,15 +316,88 @@
   let aiBlack=false;
   let aiWhite=false;
 
-  // ✅ 兩邊都沒棋 => lastMover 勝
   let lastMover = 'B';
-
-  // ✅ 真實對局：連續 NOOP 計數
   let noopStreak = 0;
 
   function dirOf(c){ return c==='B'?1:-1; }
   function otherOf(c){ return c==='B'?'W':'B'; }
   function isAI(color){ return (color==='B' && aiBlack) || (color==='W' && aiWhite); }
+
+  // =========================
+  // ✅ 圖片狀態系統（UI only）
+  // calm / fly / glide / scared
+  // =========================
+  const ASSET_BASE = './assets/';
+
+  // 目前被「選定群組化」的棋子座標（含上方群組），以及其狀態
+  let activeGroupSet = new Set();      // key: "x,y"
+  let activeGroupState = 'calm';       // fly / glide / scared / calm
+
+  // 目前正在「重生落下」的棋子座標（會隨著落下更新）
+  let respawnFallingSet = new Set();   // key: "x,y"
+
+  // 被嚇到的既有棋子（0.5 秒）
+  const scaredUntil = new Map();       // key -> timestamp(ms)
+
+  function kxy(x,y){ return x + ',' + y; }
+
+  function setActiveGroup(g, state){
+    activeGroupSet.clear();
+    if(!g){ activeGroupState = 'calm'; return; }
+    for(const yy of g.ys) activeGroupSet.add(kxy(g.x, yy));
+    activeGroupState = state || 'calm';
+  }
+
+  function clearActiveGroup(){
+    activeGroupSet.clear();
+    activeGroupState = 'calm';
+  }
+
+  function scareCellFor(x,y, ms=500){
+    if(x<1||x>W||y<1||y>H) return;
+    const key = kxy(x,y);
+    const until = Date.now() + ms;
+    scaredUntil.set(key, until);
+    // 自動清掉（避免 map 越堆越大）
+    setTimeout(() => {
+      const cur = scaredUntil.get(key);
+      if(cur && cur <= Date.now()) scaredUntil.delete(key);
+      render(); // 刷新讓它回 calm
+    }, ms + 10);
+  }
+
+  function getScareTargetFromGroup(g){
+    // 規則：
+    // - 若「前方」有棋子 => 前方那顆 scared 0.5s
+    // - 若前方沒有棋子但「前下方」有棋子 => 前下方那顆 scared 0.5s
+    const nx = g.x + dirOf(g.moverColor);
+    if(nx < 1 || nx > W) return null;
+
+    // 先找前方同高度
+    for(const yy of g.ys){
+      if(board[nx][yy] !== null) return { x:nx, y:yy };
+    }
+    // 再找前下方（yy-1）
+    for(const yy of g.ys){
+      const fy = yy - 1;
+      if(fy >= 1 && board[nx][fy] !== null) return { x:nx, y:fy };
+    }
+    return null;
+  }
+
+  function pieceImgSrc(color, state){
+    // e.g. ./assets/B_calm.png
+    return ASSET_BASE + color + '_' + state + '.png';
+  }
+
+  function getPieceStateAt(x,y){
+    const key = kxy(x,y);
+    if(activeGroupSet.has(key)) return activeGroupState;
+    if(respawnFallingSet.has(key)) return 'scared';
+    const until = scaredUntil.get(key);
+    if(until && until > Date.now()) return 'scared';
+    return 'calm';
+  }
 
   // ===== 走勢圖 UI =====
   let chartEl=null, colsEl=null;
@@ -356,7 +423,6 @@
     movesEl.appendChild(legend);
   }
 
-  // 視覺縮放（WIN 直接滿格）
   const SCALE = 30;
   function scoreToPct(v){
     if(Math.abs(v) >= 9e8) return 100;
@@ -423,11 +489,17 @@
 
         const v=board[x][y];
         if(v){
-          const p=document.createElement('div');
-          p.className='piece '+(v==='B'?'black':'white');
-          if(group && group.x===x && group.ys.includes(y)) p.classList.add('grpGlow');
-          d.appendChild(p);
+          const state = getPieceStateAt(x,y);
+          const img = document.createElement('img');
+          img.className = 'piece';
+          img.alt = v + '_' + state;
+          img.draggable = false;
+          img.src = pieceImgSrc(v, state);
+          d.appendChild(img);
+
+          if(group && group.x===x && group.ys.includes(y)) d.classList.add('grpGlow');
         }
+
         if(selected && selected.x===x && selected.y===y) d.classList.add('selOutline');
         gridEl.appendChild(d);
       }
@@ -438,7 +510,6 @@
   // ===== 基本 =====
   function deepCopyBoard(src){ return src.map(col => col.slice()); }
 
-  // 盤面 key（不含 depth）
   function posKey(b){
     let s = '';
     for(let y=1;y<=H;y++){
@@ -462,7 +533,6 @@
     whites.forEach(([x,y])=>b[x][y]='W');
   }
 
-  // ===== NOOP 和局 =====
   function resetNoopStreak(){ noopStreak = 0; }
 
   function bumpNoopStreakAndCheckDraw(showAlert = false){
@@ -658,7 +728,6 @@
     const opponent = otherOf(turnColor);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
-    // ✅ 重要修正：對手棋子被推出場外 -> 先重生，不要在重生前判勝負
     if(carriedOutOpponent > 0){
       const spawnX = (opponent==='B') ? 1 : 12;
       for(let k=0; k<carriedOutOpponent; k++){
@@ -673,11 +742,9 @@
         }
       }
       const changed = (posKey(b) !== beforeKey);
-      // 有重生獎勵回合：不換手
       return { ok:true, b, nextTurn: turnColor, carriedOutOpponent, changed, lastMover: turnColor };
     }
 
-    // ✅ 沒有重生時，才檢查終局（此時才是真正“結束”）
     const bHas = playerHasPiecesOn(b, 'B');
     const wHas = playerHasPiecesOn(b, 'W');
 
@@ -708,9 +775,8 @@
   }
 
   // ===== Alpha-Beta（AI：終局追求 evaluateBoard 最大；不看勝負步數）=====
-  // 這個版本：終局不加/不減 depth，並用「終局 evaluateBoard」當同勝負的 tie-break（用極小權重混入）。
   const TT = new Map();
-  const EPS_TE = 1e-3; // ✅ 用極小權重把 terminal eval 混入，讓同樣 WIN/LOSS 時追求更大終局評值
+  const EPS_TE = 1e-3;
 
   function boardKey(b, turnColor, depth, lastMoverKey, noopStreakKey){
     let s = turnColor + '|' + lastMoverKey + '|' + noopStreakKey + '|' + depth + '|';
@@ -730,14 +796,9 @@
     const blackHas = playerHasPiecesOn(b, 'B');
     const whiteHas = playerHasPiecesOn(b, 'W');
 
-    // ✅ 終局：不看步數，只看勝負 + 終局 evaluateBoard tie-break
-    // 黑沒棋=黑勝（依你原規則），回傳 +WIN + te*eps
     if(!blackHas && whiteHas) return (WIN + evaluateBoard(b) * EPS_TE);
-
-    // 白沒棋=白勝（黑敗），回傳 -WIN + te*eps（白在 minimax 會傾向讓 te 更小）
     if(!whiteHas && blackHas) return (-WIN + evaluateBoard(b) * EPS_TE);
 
-    // 兩邊都沒棋 => lastMover 勝
     if(!blackHas && !whiteHas){
       const base = (lastMoverAB === 'B') ? WIN : -WIN;
       return (base + evaluateBoard(b) * EPS_TE);
@@ -758,7 +819,6 @@
 
     const moves = listLegalMoves(b, turnColor);
 
-    // PASS：沒得走（算 NOOP）
     if(moves.length === 0){
       const v = alphabeta(b, otherOf(turnColor), depth - 1, alpha, beta, turnColor, noopStreakAB + 1);
       TT.set(key, { value: v, flag: 'EXACT' });
@@ -804,7 +864,6 @@
     return best;
   }
 
-  // ===== 走勢圖：alphabetaEx（維持你現在版本，用於平滑顯示）=====
   function alphabetaEx(b, turnColor, depth, alpha, beta, lastMoverAB, noopStreakAB){
     const WIN_TH = 9e8;
 
@@ -816,10 +875,10 @@
     const whiteHas = playerHasPiecesOn(b, 'W');
 
     if(!blackHas && whiteHas){
-      return { v: (WIN + depth), terminalEval: evaluateBoard(b) };   // 黑勝
+      return { v: (WIN + depth), terminalEval: evaluateBoard(b) };
     }
     if(!whiteHas && blackHas){
-      return { v: (-WIN - depth), terminalEval: evaluateBoard(b) };  // 白勝（黑敗）
+      return { v: (-WIN - depth), terminalEval: evaluateBoard(b) };
     }
     if(!blackHas && !whiteHas){
       const v = (lastMoverAB === 'B') ? (WIN + depth) : (-WIN - depth);
@@ -900,7 +959,6 @@
     return { v: bestV, terminalEval: bestTE };
   }
 
-  // ===== ✅ 每步都畫 + 白少算一步（只影響畫圖，不影響 AI 選步深度）=====
   function chartDepth(){
     let d = SEARCH_DEPTH;
     if(d < 6) d = 6;
@@ -925,7 +983,6 @@
     addBar(computeChartScoreNow());
   }
 
-  // ===== AI：選步（改為：終局追求最大 evaluateBoard；不看勝負步數）=====
   function pickBestAIMove(){
     TT.clear();
     const moves = listLegalMoves(board, turn);
@@ -952,7 +1009,6 @@
     return { x: scored[0].x, y: scored[0].y, score: scored[0].v };
   }
 
-  // ===== 終局判定（真實對局 alert）=====
   function checkGameOver(showAlert = false, moverColor = null){
     const blackHas = playerHasPiecesOn(board, 'B');
     const whiteHas = playerHasPiecesOn(board, 'W');
@@ -975,13 +1031,27 @@
 
   // ===== 重生/下落（真實對局）=====
   async function dropPieceAt(x, y){
-    while(y>1 && board[x][y-1]===null){
-      board[x][y-1] = board[x][y];
-      board[x][y] = null;
-      y = y-1;
+    // ✅ 這顆棋子落下期間全程 scared（用 respawnFallingSet 控制）
+    let cx = x, cy = y;
+    respawnFallingSet.add(kxy(cx,cy));
+    render();
+
+    while(cy>1 && board[cx][cy-1]===null){
+      // 移動棋子
+      board[cx][cy-1] = board[cx][cy];
+      board[cx][cy] = null;
+
+      // 更新 falling 標記座標
+      respawnFallingSet.delete(kxy(cx,cy));
+      cy = cy-1;
+      respawnFallingSet.add(kxy(cx,cy));
+
       render();
       await sleep(STEP_DELAY);
     }
+
+    respawnFallingSet.delete(kxy(cx,cy));
+    render();
   }
 
   async function respawnAndDrop(color, count){
@@ -1010,25 +1080,45 @@
     const beforeKey = posKey(board);
     lastMover = turn;
 
+    // ✅ fly：決定好移動量後，上升期間（含上方群組）
+    setActiveGroup(group, 'fly');
+    render();
+
     const above=countAllAbove(selected.x,selected.y);
     const moveAmount=Math.floor(POINTS_PER_TURN/(above+1));
 
-    // 上升
     for(let i=0;i<moveAmount;i++){
       if(moveUpStep(group)){
+        setActiveGroup(group, 'fly');
         render();
         await sleep(STEP_DELAY);
       } else break;
     }
 
-    // 前進/下落
+    // ✅ glide：開始檢查/執行向前/向下
+    setActiveGroup(group, 'glide');
+    render();
+
     let carriedOut = {B:0, W:0};
     let safety = 0;
 
+    // 如果發生碰撞：選定棋子落下期間全程 scared
+    let fallScared = false;
+
     while(safety++ < 3000){
       if(frontBlocked(group)){
+        // ✅ 碰撞：選定棋子進入 scared（落下期間全程）
+        fallScared = true;
+        setActiveGroup(group, 'scared');
+
+        // ✅ 被撞到的既有棋子 scared 0.5s（前方優先，否則前下方）
+        const t = getScareTargetFromGroup(group);
+        if(t) scareCellFor(t.x, t.y, 500);
+
+        // ✅ 落下期間（scared）
         while(canMoveDown(group)){
           moveDown1(group);
+          setActiveGroup(group, 'scared');
           render();
           await sleep(STEP_DELAY);
         }
@@ -1036,23 +1126,37 @@
       }
 
       const res = moveForward1(group);
-
       carriedOut.B += res.removed.B;
       carriedOut.W += res.removed.W;
 
       if(res.blocked){
-        render();
-        await sleep(STEP_DELAY);
+        // ✅ 碰撞：同上
+        fallScared = true;
+        setActiveGroup(group, 'scared');
+
+        const t = getScareTargetFromGroup(group);
+        if(t) scareCellFor(t.x, t.y, 500);
+
+        while(canMoveDown(group)){
+          moveDown1(group);
+          setActiveGroup(group, 'scared');
+          render();
+          await sleep(STEP_DELAY);
+        }
         break;
       }
+
+      render();
+      await sleep(STEP_DELAY);
+
       if(res.borneOff){
-        render();
-        await sleep(STEP_DELAY);
         break;
       }
 
       if(!belowOccupiedOrGround(group)){
+        // glide 時的正常下落
         moveDown1(group);
+        setActiveGroup(group, fallScared ? 'scared' : 'glide');
       }
 
       render();
@@ -1064,30 +1168,32 @@
     const opponent = otherOf(turn);
     const carriedOutOpponent = (opponent==='B') ? carriedOut.B : carriedOut.W;
 
-    // ✅ 重要修正：若對手棋子被推出場外 -> 先重生（避免重生前誤判勝負）
+    // ✅ 若對手棋子被推出場外 -> 先重生（重生落下期間 scared）
     let keepTurn = false;
     if(carriedOutOpponent > 0){
       await respawnAndDrop(opponent, carriedOutOpponent);
-      keepTurn = true; // 推出對手並重生 => 自己再走一次
+      keepTurn = true;
     }
 
-    // ✅ 重生完成後，再判勝負（以最終盤面為準）
+    // ✅ 重生完成後，再判勝負
     const over = checkGameOver(false, lastMover);
     if(over.over){
       render();
       await sleep(50);
       alert(`${over.winner==='B'?'黑棋':'白棋'}勝利！`);
+      clearActiveGroup();
       isAnimating = false;
       return;
     }
 
-    // ✅ 用「最終盤面」（含重生後）判定 NOOP
+    // ✅ NOOP 判定
     const finalKey = posKey(board);
     const netChanged = (finalKey !== beforeKey);
 
     if(!netChanged){
       const dr = bumpNoopStreakAndCheckDraw(true);
       if(dr.over){
+        clearActiveGroup();
         isAnimating = false;
         return;
       }
@@ -1095,23 +1201,21 @@
       resetNoopStreak();
     }
 
-    // ✅ 換手規則：只有在「沒有重生獎勵回合」才換手
     if(!keepTurn){
       turn = opponent;
     }
 
     selected = null;
     group = null;
+    clearActiveGroup();
     render();
 
-    // 每步都畫（turn 可能沒變，也可能已切換）
     pushChartPoint();
 
     isAnimating = false;
     await maybeTriggerAIMove();
   }
 
-  // ===== AI 觸發 =====
   async function maybeTriggerAIMove(){
     if(isAnimating) return;
 
@@ -1130,15 +1234,14 @@
     const mv = pickBestAIMove();
 
     if(!mv){
-      // PASS：換手 + NOOP
       lastMover = turn;
       const dr = bumpNoopStreakAndCheckDraw(true);
 
       turn = otherOf(turn);
       selected = null; group = null;
+      clearActiveGroup();
       render();
 
-      // ✅ PASS 也算一步（此時 turn 已切換）
       pushChartPoint();
 
       if(dr.over) return;
@@ -1148,7 +1251,11 @@
 
     selected = {x: mv.x, y: mv.y};
     group = computeGroup(mv.x, mv.y);
+
+    // ✅ 選定瞬間仍是 calm（你定義：所有棋子預設 calm）
+    clearActiveGroup();
     render();
+
     await sleep(50);
     await performMove();
   }
@@ -1168,7 +1275,11 @@
 
     selected={x,y};
     group=computeGroup(x,y);
+
+    // ✅ 點選只是選定，仍是 calm
+    clearActiveGroup();
     render();
+
     await sleep(50);
     await performMove();
   });
@@ -1203,6 +1314,12 @@
     group=null;
     isAnimating=false;
     resetNoopStreak();
+
+    // ✅ 清理 UI 狀態
+    clearActiveGroup();
+    respawnFallingSet.clear();
+    scaredUntil.clear();
+
     clearChart();
     render();
     pushChartPoint();
